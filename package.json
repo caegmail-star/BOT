@@ -1,7 +1,7 @@
 {
   "name": "ceas-bot",
-  "version": "1.0.0",
-  "description": "Ceas Discord Bot - Moderation, Tickets, Welcome, Help",
+  "version": "3.0.0",
+  "description": "Ceas Discord Bot — full moderation, tickets, AFK, vouch, slash commands",
   "main": "index.js",
   "scripts": {
     "start": "node index.js",
@@ -9,8 +9,7 @@
   },
   "dependencies": {
     "discord.js": "^14.15.3",
-    "dotenv": "^16.4.5",
-    "canvas": "^2.11.2"
+    "dotenv": "^16.4.5"
   },
   "devDependencies": {
     "nodemon": "^3.1.4"
