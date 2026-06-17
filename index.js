@@ -36,6 +36,52 @@ const openTickets= new Map(); // chId    → {userId,createdAt}
 const afkUsers   = new Map(); // userId  → {reason,since,originalNick}
 const vouches    = new Map(); // targetId→ [{fromId,fromTag,comment,date}]
 
+// ─── Anti-Nuke Store ─────────────────────────────────────────────────────────
+// guildId → userId → { bans:[], kicks:[], chDel:[], roleDel:[], webhooks:[] }
+const nukeLog = new Map();
+const NUKE_WINDOW = 10_000; // 10 second rolling window
+const NUKE_DEFAULTS = { ban: 3, kick: 3, chDel: 3, roleDel: 3, webhook: 2 };
+
+function getNukeLog(guildId, userId) {
+  if (!nukeLog.has(guildId)) nukeLog.set(guildId, new Map());
+  const g = nukeLog.get(guildId);
+  if (!g.has(userId)) g.set(userId, { bans: [], kicks: [], chDel: [], roleDel: [], webhooks: [] });
+  return g.get(userId);
+}
+
+function recentCount(arr) {
+  const now = Date.now();
+  while (arr.length && now - arr[0] > NUKE_WINDOW) arr.shift();
+  return arr.length;
+}
+
+function isNukeWhitelisted(guild, userId) {
+  if (userId === guild.ownerId) return true;
+  if (userId === OWNER_ID) return true;
+  const cfg = gc(guild.id);
+  return (cfg.nukeWhitelist || []).includes(userId);
+}
+
+async function punishNuker(guild, userId, reason) {
+  const cfg = gc(guild.id);
+  if (!cfg.antinuke) return;
+  const logCh = cfg.logChannel ? guild.channels.cache.get(cfg.logChannel) : null;
+  const nukeEmbed = new EmbedBuilder()
+    .setColor(0xff0000).setTitle('🚨 ANTI-NUKE TRIGGERED')
+    .setDescription(`**User:** <@${userId}> (\`${userId}\`)\n**Action:** ${reason}\n**Result:** Banned & roles stripped`)
+    .setTimestamp();
+  if (logCh) logCh.send({ content: '@here', embeds: [nukeEmbed] }).catch(() => {});
+  try {
+    const member = await guild.members.fetch(userId).catch(() => null);
+    if (member) {
+      await member.roles.set([], `Anti-Nuke: ${reason}`).catch(() => {});
+      await member.ban({ reason: `[ANTI-NUKE] ${reason}`, deleteMessageSeconds: 0 }).catch(() => {});
+    } else {
+      await guild.bans.create(userId, { reason: `[ANTI-NUKE] ${reason}` }).catch(() => {});
+    }
+  } catch (e) { console.error('Anti-nuke punish error:', e.message); }
+}
+
 // ─── Embed helpers ────────────────────────────────────────────────────────────
 const ok   = (t, d) => new EmbedBuilder().setColor(0x57f287).setTitle(`✅ ${t}`).setDescription(d).setTimestamp();
 const err  = (d)    => new EmbedBuilder().setColor(0xed4245).setTitle('❌ Error').setDescription(d).setTimestamp();
@@ -606,12 +652,94 @@ const COMMANDS = {
     cat: 'general', usage: 'help', desc: 'Show the interactive help menu with dropdowns',
     async run(ctx) { await sendHelpMenu(ctx); },
   },
+
+  // ── Anti-Nuke ────────────────────────────────────────────────────────────────
+  antinuke: {
+    cat: 'antinuke', usage: 'antinuke <on|off|status|whitelist|unwhitelist|threshold> [args]',
+    desc: 'Configure the anti-nuke protection system',
+    async run(ctx, args) {
+      if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
+      const sub = (args[0] || 'status').toLowerCase();
+
+      if (sub === 'on') {
+        setGC(ctx.guild.id, 'antinuke', true);
+        return ctx.reply({ embeds: [ok('Anti-Nuke Enabled', '🛡️ Anti-nuke protection is now **ON**.\nAny user who mass-bans, mass-kicks, mass-deletes channels/roles, or creates webhooks beyond the threshold will be instantly banned and stripped of roles.')] });
+      }
+
+      if (sub === 'off') {
+        setGC(ctx.guild.id, 'antinuke', false);
+        return ctx.reply({ embeds: [warn('Anti-Nuke Disabled', 'Anti-nuke protection is now **OFF**.')] });
+      }
+
+      if (sub === 'whitelist') {
+        const target = ctx.guild.members.cache.get(args[1]?.replace(/[<@!>]/g, '')) || ctx.guild.members.cache.find(m => m.user.tag === args.slice(1).join(' '));
+        if (!target) return ctx.reply({ embeds: [err('Mention a member or provide their ID.')] });
+        const cfg = gc(ctx.guild.id);
+        const list = cfg.nukeWhitelist || [];
+        if (list.includes(target.id)) return ctx.reply({ embeds: [info('Already Whitelisted', `**${target.user.tag}** is already whitelisted.`)] });
+        list.push(target.id);
+        setGC(ctx.guild.id, 'nukeWhitelist', list);
+        return ctx.reply({ embeds: [ok('Whitelisted', `**${target.user.tag}** is now exempt from anti-nuke.`)] });
+      }
+
+      if (sub === 'unwhitelist') {
+        const targetId = args[1]?.replace(/[<@!>]/g, '');
+        if (!targetId) return ctx.reply({ embeds: [err('Mention a member or provide their ID.')] });
+        const cfg  = gc(ctx.guild.id);
+        const list = (cfg.nukeWhitelist || []).filter(id => id !== targetId);
+        setGC(ctx.guild.id, 'nukeWhitelist', list);
+        const u = await client.users.fetch(targetId).catch(() => null);
+        return ctx.reply({ embeds: [ok('Removed from Whitelist', `${u ? u.tag : targetId} is no longer whitelisted.`)] });
+      }
+
+      if (sub === 'threshold') {
+        // antinuke threshold ban 5
+        const type  = args[1]?.toLowerCase();
+        const value = parseInt(args[2]);
+        const valid = ['ban', 'kick', 'chdel', 'roledel', 'webhook'];
+        if (!type || !valid.includes(type) || isNaN(value) || value < 1) {
+          return ctx.reply({ embeds: [info('Threshold Usage', `\`antinuke threshold <ban|kick|chDel|roleDel|webhook> <number>\`\n\nExample: \`antinuke threshold ban 2\``)] });
+        }
+        const cfg = gc(ctx.guild.id);
+        const thr = cfg.nukeThresholds || { ...NUKE_DEFAULTS };
+        const keyMap = { ban: 'ban', kick: 'kick', chdel: 'chDel', roledel: 'roleDel', webhook: 'webhook' };
+        thr[keyMap[type]] = value;
+        setGC(ctx.guild.id, 'nukeThresholds', thr);
+        return ctx.reply({ embeds: [ok('Threshold Updated', `**${type}** threshold set to **${value}** actions per 10 seconds.`)] });
+      }
+
+      // status (default)
+      const cfg = gc(ctx.guild.id);
+      const thr = cfg.nukeThresholds || NUKE_DEFAULTS;
+      const wl  = cfg.nukeWhitelist || [];
+      const wlUsers = await Promise.all(wl.map(id => client.users.fetch(id).catch(() => id)));
+      return ctx.reply({ embeds: [new EmbedBuilder()
+        .setColor(cfg.antinuke ? 0x57f287 : 0xed4245)
+        .setTitle(`🛡️ Anti-Nuke — ${cfg.antinuke ? '✅ Enabled' : '❌ Disabled'}`)
+        .setDescription('Monitors and auto-bans users who attempt to nuke (destroy) the server.')
+        .addFields(
+          { name: '⚡ Thresholds (per 10s)', value: [
+            `**Ban:** ${thr.ban} actions`,
+            `**Kick:** ${thr.kick} actions`,
+            `**Channel Delete:** ${thr.chDel} actions`,
+            `**Role Delete:** ${thr.roleDel} actions`,
+            `**Webhook Create:** ${thr.webhook} actions`,
+          ].join('\n'), inline: true },
+          { name: '🔒 Monitored Events', value: '• Mass ban\n• Mass kick\n• Mass channel delete\n• Mass role delete\n• Webhook creation\n• Bot additions', inline: true },
+          { name: `✅ Whitelist (${wl.length})`, value: wlUsers.length ? wlUsers.map(u => typeof u === 'string' ? `\`${u}\`` : u.tag).join(', ') : 'None' },
+        )
+        .setFooter({ text: 'Use: antinuke on | off | whitelist @user | threshold ban 2' })
+        .setTimestamp()
+      ] });
+    },
+  },
 };
 
 // ─── Help menu ────────────────────────────────────────────────────────────────
 const CATS = {
   admin:      { emoji: '⚙️', label: 'Admin',      desc: 'Setup & configuration',          color: 0xeb459e },
   moderation: { emoji: '🔨', label: 'Moderation', desc: 'Ban, kick, mute, warn & more',   color: 0xed4245 },
+  antinuke:   { emoji: '🛡️', label: 'Anti-Nuke',  desc: 'Server nuke protection',         color: 0xff4444 },
   utility:    { emoji: '🛠️', label: 'Utility',    desc: 'Say, embed, userinfo, ping',     color: 0x5865f2 },
   tickets:    { emoji: '🎫', label: 'Tickets',    desc: 'Ticket panel, close, transcript',color: 0xfee75c },
   social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system & leaderboard',     color: 0xf1c40f },
@@ -761,6 +889,20 @@ const SLASH_DEFS = [
 
   new SlashCommandBuilder().setName('close').setDescription('Close the current ticket')
     .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+
+  // Anti-Nuke
+  new SlashCommandBuilder().setName('antinuke').setDescription('Configure anti-nuke protection').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(o => o.setName('action').setDescription('What to do').setRequired(true)
+      .addChoices(
+        { name: 'status — View current settings',       value: 'status'      },
+        { name: 'on — Enable anti-nuke',                value: 'on'          },
+        { name: 'off — Disable anti-nuke',              value: 'off'         },
+        { name: 'whitelist — Whitelist a user',         value: 'whitelist'   },
+        { name: 'unwhitelist — Remove from whitelist',  value: 'unwhitelist' },
+      ))
+    .addUserOption(o => o.setName('user').setDescription('User to whitelist/unwhitelist').setRequired(false))
+    .addStringOption(o => o.setName('threshold_type').setDescription('Threshold to change (ban/kick/chdel/roledel/webhook)').setRequired(false))
+    .addIntegerOption(o => o.setName('threshold_value').setDescription('New threshold value (min 1)').setMinValue(1).setRequired(false)),
 ];
 
 // ─── Resolve a guild member from interaction options ──────────────────────────
@@ -909,6 +1051,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case 'ping':   return await COMMANDS.ping.run(ctx, []);
       case 'ticket': return await COMMANDS.ticket.run(ctx, []);
       case 'close':  return await COMMANDS.close.run(ctx, [options.getString('reason') || ''].filter(Boolean));
+      case 'antinuke': {
+        const action = options.getString('action');
+        const user   = options.getUser('user');
+        const tType  = options.getString('threshold_type');
+        const tVal   = options.getInteger('threshold_value');
+        const args   = [action];
+        if (user)   args.push(user.id);
+        if (tType && tVal) { args[0] = 'threshold'; args.push(tType, String(tVal)); }
+        return await COMMANDS.antinuke.run(ctx, args);
+      }
     }
   } catch (e) {
     console.error(`Slash error [${commandName}]:`, e);
@@ -1011,6 +1163,125 @@ client.on(Events.MessageCreate, async (message) => {
   catch (e) { console.error(`Prefix error [${cmdName}]:`, e); message.reply({ embeds: [err('An error occurred.')] }).catch(() => {}); }
 });
 
+// ─── Anti-Nuke Event Listeners ────────────────────────────────────────────────
+// Mass Ban detection
+client.on(Events.GuildBanAdd, async (ban) => {
+  const cfg = gc(ban.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await ban.guild.fetchAuditLogs({ type: 22, limit: 1 }).catch(() => null); // 22 = MEMBER_BAN_ADD
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 3000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(ban.guild, executorId)) return;
+  const log = getNukeLog(ban.guild.id, executorId);
+  log.bans.push(Date.now());
+  const thr = cfg.nukeThresholds?.ban ?? NUKE_DEFAULTS.ban;
+  if (recentCount(log.bans) >= thr) {
+    await punishNuker(ban.guild, executorId, `Mass ban (≥${thr} bans in 10s)`);
+    log.bans = [];
+  }
+});
+
+// Mass Kick detection (GuildMemberRemove + audit log)
+client.on(Events.GuildMemberRemove, async (member) => {
+  if (member.user.bot) return;
+  const cfg = gc(member.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await member.guild.fetchAuditLogs({ type: 20, limit: 1 }).catch(() => null); // 20 = MEMBER_KICK
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 3000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(member.guild, executorId)) return;
+  const log = getNukeLog(member.guild.id, executorId);
+  log.kicks.push(Date.now());
+  const thr = cfg.nukeThresholds?.kick ?? NUKE_DEFAULTS.kick;
+  if (recentCount(log.kicks) >= thr) {
+    await punishNuker(member.guild, executorId, `Mass kick (≥${thr} kicks in 10s)`);
+    log.kicks = [];
+  }
+});
+
+// Mass Channel Delete detection
+client.on(Events.ChannelDelete, async (channel) => {
+  if (!channel.guild) return;
+  const cfg = gc(channel.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await channel.guild.fetchAuditLogs({ type: 12, limit: 1 }).catch(() => null); // 12 = CHANNEL_DELETE
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 3000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(channel.guild, executorId)) return;
+  const log = getNukeLog(channel.guild.id, executorId);
+  log.chDel.push(Date.now());
+  const thr = cfg.nukeThresholds?.chDel ?? NUKE_DEFAULTS.chDel;
+  if (recentCount(log.chDel) >= thr) {
+    await punishNuker(channel.guild, executorId, `Mass channel delete (≥${thr} in 10s)`);
+    log.chDel = [];
+  }
+});
+
+// Mass Role Delete detection
+client.on(Events.GuildRoleDelete, async (role) => {
+  const cfg = gc(role.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await role.guild.fetchAuditLogs({ type: 32, limit: 1 }).catch(() => null); // 32 = ROLE_DELETE
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 3000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(role.guild, executorId)) return;
+  const log = getNukeLog(role.guild.id, executorId);
+  log.roleDel.push(Date.now());
+  const thr = cfg.nukeThresholds?.roleDel ?? NUKE_DEFAULTS.roleDel;
+  if (recentCount(log.roleDel) >= thr) {
+    await punishNuker(role.guild, executorId, `Mass role delete (≥${thr} in 10s)`);
+    log.roleDel = [];
+  }
+});
+
+// Webhook creation detection
+client.on(Events.WebhooksUpdate, async (channel) => {
+  const cfg = gc(channel.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await channel.guild.fetchAuditLogs({ type: 101, limit: 1 }).catch(() => null); // 101 = WEBHOOK_CREATE
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 3000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(channel.guild, executorId)) return;
+  const log = getNukeLog(channel.guild.id, executorId);
+  log.webhooks.push(Date.now());
+  const thr = cfg.nukeThresholds?.webhook ?? NUKE_DEFAULTS.webhook;
+  if (recentCount(log.webhooks) >= thr) {
+    await punishNuker(channel.guild, executorId, `Suspicious webhook creation (≥${thr} in 10s)`);
+    log.webhooks = [];
+  }
+});
+
+// Bot addition detection (suspicious — nuke bots are added right before attacking)
+client.on(Events.GuildMemberAdd, async (member) => {
+  if (!member.user.bot) return;
+  const cfg = gc(member.guild.id);
+  if (!cfg.antinuke) return;
+  const audit = await member.guild.fetchAuditLogs({ type: 28, limit: 1 }).catch(() => null); // 28 = BOT_ADD
+  const entry = audit?.entries.first();
+  if (!entry || Date.now() - entry.createdTimestamp > 5000) return;
+  const executorId = entry.executor?.id;
+  if (!executorId || executorId === client.user.id) return;
+  if (isNukeWhitelisted(member.guild, executorId)) {
+    // Whitelisted — just log
+    sendLog(member.guild, info('🤖 Bot Added', `Bot **${member.user.tag}** added by <@${executorId}> (whitelisted)`));
+    return;
+  }
+  // Non-whitelisted user added a bot → warn in log
+  sendLog(member.guild, new EmbedBuilder().setColor(0xfee75c).setTitle('⚠️ Unwhitelisted Bot Added')
+    .setDescription(`Bot **${member.user.tag}** was added by <@${executorId}>.\nIf this looks suspicious, run \`antinuke whitelist\` for trusted admins.`)
+    .setTimestamp());
+});
+
 // ─── Welcome ──────────────────────────────────────────────────────────────────
 client.on(Events.GuildMemberAdd, async (member) => {
   const cfg = gc(member.guild.id);
@@ -1035,7 +1306,7 @@ client.once(Events.ClientReady, async () => {
   console.log(`\n✅  Ceas Bot online — ${client.user.tag}`);
   console.log(`⚙️   Config stored in config.json | Use c.setup to configure`);
   console.log(`🔷  ${SLASH_DEFS.length} slash commands | ${Object.keys(COMMANDS).length} prefix commands\n`);
-  client.user.setActivity('c.setup | /help', { type: 3 });
+  client.user.setActivity('NO LIMIT 💫', { type: 3 }); // type 3 = Watching
 
   // Register slash commands to every guild (instant) + global fallback
   const rest = new REST({ version: '10' }).setToken(process.env.BOT_TOKEN);
