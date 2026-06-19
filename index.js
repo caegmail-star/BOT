@@ -39,6 +39,7 @@ const inviteJoins= new Map(); // guildId → Map(userId → {inviterId,code,at})
 const afkUsers   = new Map(); // userId  → {reason,since,originalNick}
 const vouches    = new Map(); // targetId→ [{fromId,fromTag,comment,date}]
 const nickHistory= new Map(); // userId  → [{oldNick,newNick,by,date}] (max 15 per user)
+const activeDeals= new Map(); // dealId  → {proposerId,targetId,product,channelId,guildId,messageId,status}
 
 // ─── Anti-Nuke Store ─────────────────────────────────────────────────────────
 // guildId → userId → { bans:[], kicks:[], chDel:[], roleDel:[], webhooks:[] }
@@ -298,6 +299,7 @@ async function runSetup(ctx, args) {
       `**Ticket Note:**     ${cfg.ticketNote      ? `\`${cfg.ticketNote.slice(0,50)}${cfg.ticketNote.length>50?'…':''}\`` : 'Default'}`,
       `**Goodbye Channel:** ${cfg.goodbyeChannel  ? `<#${cfg.goodbyeChannel}>`          : 'Not set'}`,
       `**Goodbye Message:** ${cfg.goodbyeMsg      ? `\`${cfg.goodbyeMsg.slice(0,60)}${cfg.goodbyeMsg.length>60?'…':''}\`` : 'Default'}`,
+      `**Deal Log:**        ${cfg.dealLogChannel  ? `<#${cfg.dealLogChannel}>`                : 'Not set (use setdeallog)'}`,
       `**Media-Only:**      ${(cfg.mediaChannels||[]).length ? (cfg.mediaChannels||[]).map(id=>`<#${id}>`).join(', ') : 'None set'}`,
       `**Media Whitelist:** ${(cfg.mediaWhitelist||[]).length ? `${(cfg.mediaWhitelist||[]).length} entries` : 'None'}`,
       `**Mod Role:**        ${cfg.modRole         ? `<@&${cfg.modRole}>`                : 'Not set'}`,
@@ -790,6 +792,50 @@ const COMMANDS = {
       if (!ctx.isSlash && msg) setTimeout(() => msg.delete().catch(() => {}), 6000);
     },
   },
+  deal: {
+    cat: 'social', usage: 'deal <product name>', desc: 'Propose a deal to the other party in a ticket',
+    async run(ctx, args) {
+      const product = args.join(' ').trim();
+      if (!product) return ctx.reply({ embeds: [err('Please provide a product name: `deal <product name>`')] });
+      const ticketData = openTickets.get(ctx.channel.id);
+      if (!ticketData) return ctx.reply({ embeds: [err('This command can only be used inside a ticket channel.')] });
+      const proposerId = ctx.author.id;
+      const creatorId  = ticketData.userId;
+      const targetId   = proposerId === creatorId ? null : creatorId;
+      const dealId     = `${ctx.guild.id}_${ctx.channel.id}_${Date.now()}`;
+      const embed = new EmbedBuilder()
+        .setColor(0xf1c40f)
+        .setTitle('🤝 Deal Proposal')
+        .addFields(
+          { name: '📦 Product',     value: product,                                            inline: true  },
+          { name: '👤 Proposed by', value: `<@${proposerId}>`,                                 inline: true  },
+          { name: '🎯 Proposed to', value: targetId ? `<@${targetId}>` : 'Staff in ticket',   inline: true  },
+          { name: '📊 Status',      value: '⏳ Pending — waiting for response',                inline: false },
+        )
+        .setFooter({ text: 'Only the intended recipient can accept or reject' })
+        .setTimestamp();
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`deal_accept_${dealId}`).setLabel('Accept Deal').setEmoji('✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`deal_reject_${dealId}`).setLabel('Reject Deal').setEmoji('❌').setStyle(ButtonStyle.Danger),
+      );
+      const mention = targetId ? `<@${targetId}>` : '';
+      const msg = await ctx.channel.send({ content: mention || undefined, embeds: [embed], components: [row] });
+      activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() });
+      if (ctx.isSlash) return ctx.replyEphemeral({ content: '✅ Deal proposal sent!' });
+    },
+  },
+  setdeallog: {
+    cat: 'admin', usage: 'setdeallog #channel', desc: 'Set the channel where all deal results are logged',
+    async run(ctx, args) {
+      if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
+      const chId = args[0]?.replace(/[^0-9]/g, '');
+      if (!chId) return ctx.reply({ embeds: [err('Please mention a channel: `setdeallog #channel`')] });
+      const ch = ctx.guild.channels.cache.get(chId);
+      if (!ch) return ctx.reply({ embeds: [err('Channel not found.')] });
+      setGC(ctx.guild.id, 'dealLogChannel', chId);
+      ctx.reply({ embeds: [ok('Deal Log Channel Set', `All deal outcomes will be logged to ${ch}.\n\nMods can type \`deal <product>\` inside a ticket to propose a deal.`)] });
+    },
+  },
   vouchleader: {
     cat: 'social', usage: 'vouchleader', desc: 'Show the vouch leaderboard',
     async run(ctx) {
@@ -1054,7 +1100,7 @@ const CATS = {
   antinuke:   { emoji: '🛡️', label: 'Anti-Nuke',  desc: 'Server nuke protection',         color: 0xff4444 },
   utility:    { emoji: '🛠️', label: 'Utility',    desc: 'Say, embed, userinfo, ping',     color: 0x5865f2 },
   tickets:    { emoji: '🎫', label: 'Tickets',    desc: 'Ticket panel, close, transcript',color: 0xfee75c },
-  social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system & leaderboard',     color: 0xf1c40f },
+  social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
   general:    { emoji: '📋', label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
 };
 
@@ -1269,6 +1315,13 @@ const SLASH_DEFS = [
   new SlashCommandBuilder().setName('setnoprefix').setDescription('Enable/disable true no-prefix mode for moderators').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addStringOption(o => o.setName('toggle').setDescription('on or off').setRequired(false)
       .addChoices({ name: 'on — Enable (mods type "ban @user" with no prefix)', value: 'on' }, { name: 'off — Disable', value: 'off' })),
+
+  // Deal system
+  new SlashCommandBuilder().setName('deal').setDescription('Propose a deal to the other party inside a ticket')
+    .addStringOption(o => o.setName('product').setDescription('The product / item being dealt').setRequired(true)),
+
+  new SlashCommandBuilder().setName('setdeallog').setDescription('Set the channel where all deal outcomes are logged').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addChannelOption(o => o.setName('channel').setDescription('Deal log channel').setRequired(true)),
 ];
 
 // ─── Resolve a guild member from interaction options ──────────────────────────
@@ -1303,6 +1356,66 @@ client.on(Events.InteractionCreate, async (interaction) => {
       if (!isMod(interaction.member)) return interaction.reply({ embeds: [err('Only staff can claim.')], ephemeral: true });
       return interaction.update({ embeds: [...interaction.message.embeds, ok('Claimed', `Claimed by ${interaction.member}`)], components: [] });
     }
+
+    // Deal buttons
+    if (interaction.customId.startsWith('deal_accept_') || interaction.customId.startsWith('deal_reject_')) {
+      const isAccept = interaction.customId.startsWith('deal_accept_');
+      const dealId   = interaction.customId.slice(isAccept ? 'deal_accept_'.length : 'deal_reject_'.length);
+      const deal     = activeDeals.get(dealId);
+      if (!deal) return interaction.reply({ embeds: [err('This deal has expired or was not found.')], ephemeral: true });
+      if (deal.status !== 'pending') return interaction.reply({ embeds: [err('This deal has already been decided.')], ephemeral: true });
+      if (interaction.user.id === deal.proposerId) return interaction.reply({ embeds: [err('You cannot respond to your own deal proposal.')], ephemeral: true });
+      const canRespond = deal.targetId
+        ? interaction.user.id === deal.targetId
+        : isMod(interaction.member);
+      if (!canRespond) return interaction.reply({ embeds: [err('Only the intended recipient can accept or reject this deal.')], ephemeral: true });
+
+      deal.status      = isAccept ? 'accepted' : 'rejected';
+      deal.responderId = interaction.user.id;
+      deal.respondedAt = Date.now();
+
+      const color  = isAccept ? 0x57f287 : 0xed4245;
+      const status = isAccept ? '✅ Accepted' : '❌ Rejected';
+
+      const updatedEmbed = new EmbedBuilder()
+        .setColor(color)
+        .setTitle('🤝 Deal Proposal')
+        .addFields(
+          { name: '📦 Product',      value: deal.product,                      inline: true  },
+          { name: '👤 Proposed by',  value: `<@${deal.proposerId}>`,           inline: true  },
+          { name: '👤 Responded by', value: `<@${interaction.user.id}>`,       inline: true  },
+          { name: '📊 Status',       value: status,                            inline: false },
+        )
+        .setFooter({ text: `Decision made by ${interaction.user.tag}` })
+        .setTimestamp();
+
+      await interaction.update({ embeds: [updatedEmbed], components: [] });
+
+      // Log to deal log channel
+      const cfg     = gc(interaction.guild.id);
+      const logChId = cfg.dealLogChannel;
+      if (logChId) {
+        const logCh = interaction.guild.channels.cache.get(logChId);
+        if (logCh) {
+          logCh.send({ embeds: [new EmbedBuilder()
+            .setColor(color)
+            .setTitle(`🤝 Deal ${isAccept ? 'Accepted' : 'Rejected'}`)
+            .addFields(
+              { name: '📦 Product',      value: deal.product,                              inline: true  },
+              { name: '🏷️ Ticket',       value: `<#${deal.channelId}>`,                  inline: true  },
+              { name: '👤 Proposer',     value: `<@${deal.proposerId}>`,                  inline: true  },
+              { name: '👤 Responder',    value: `<@${interaction.user.id}>`,              inline: true  },
+              { name: '📊 Decision',     value: status,                                   inline: true  },
+              { name: '⏱️ Proposed',     value: `<t:${Math.floor(deal.at / 1000)}:R>`,   inline: true  },
+            )
+            .setFooter({ text: `Guild: ${interaction.guild.name}` })
+            .setTimestamp()
+          ] }).catch(() => {});
+        }
+      }
+      return;
+    }
+
     return;
   }
 
@@ -1499,6 +1612,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (tType && tVal) { args[0] = 'threshold'; args.push(tType, String(tVal)); }
         return await COMMANDS.antinuke.run(ctx, args);
       }
+      case 'deal': {
+        const product = options.getString('product') || '';
+        return await COMMANDS.deal.run(ctx, product.split(' '));
+      }
+      case 'setdeallog': {
+        const ch = options.getChannel('channel');
+        return await COMMANDS.setdeallog.run(ctx, ch ? [ch.id] : []);
+      }
     }
   } catch (e) {
     console.error(`Slash error [${commandName}]:`, e);
@@ -1607,8 +1728,19 @@ client.on(Events.MessageCreate, async (message) => {
         if (role) {
           const tMember = await message.guild.members.fetch(ref.author.id).catch(() => null);
           if (tMember) {
-            const ctx = ctxFromMessage(message);
-            try { await COMMANDS.role.run(ctx, [], tMember, role); } catch { ctx.reply({ embeds: [err('Failed to manage role.')] }); }
+            const baseCtx = ctxFromMessage(message);
+            const ctx = {
+              ...baseCtx,
+              reply: async (opts) => {
+                const sent = await baseCtx.reply(opts);
+                if (sent) setTimeout(() => sent.delete().catch(() => {}), 5000);
+                return sent;
+              },
+            };
+            try {
+              await COMMANDS.role.run(ctx, [], tMember, role);
+              message.delete().catch(() => {});
+            } catch { ctx.reply({ embeds: [err('Failed to manage role.')] }); }
             return;
           }
         }
@@ -1647,7 +1779,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
