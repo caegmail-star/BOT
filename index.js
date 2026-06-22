@@ -40,6 +40,9 @@ const afkUsers   = new Map(); // userId  → {reason,since,originalNick}
 const vouches    = new Map(); // targetId→ [{fromId,fromTag,comment,date}]
 const nickHistory= new Map(); // userId  → [{oldNick,newNick,by,date}] (max 15 per user)
 const activeDeals= new Map(); // dealId  → {proposerId,targetId,product,channelId,guildId,messageId,status}
+const snipeCache = new Map(); // channelId → {content,author,authorAvatar,deletedAt,attachmentURL}
+const giveaways  = new Map(); // messageId → {prize,hostId,guildId,channelId,winners,entries,endsAt,ended}
+const reminders  = new Map(); // userId   → [{message,at,guildName}]
 
 // ─── Anti-Nuke Store ─────────────────────────────────────────────────────────
 // guildId → userId → { bans:[], kicks:[], chDel:[], roleDel:[], webhooks:[] }
@@ -836,6 +839,185 @@ const COMMANDS = {
       ctx.reply({ embeds: [ok('Deal Log Channel Set', `All deal outcomes will be logged to ${ch}.\n\nMods can type \`deal <product>\` inside a ticket to propose a deal.`)] });
     },
   },
+  // ── Bot Management (owner only) ───────────────────────────────────────────────
+  botavatar: {
+    cat: 'botmgmt', usage: 'botavatar <url or attach image>', desc: "Change the bot's avatar (owner only)",
+    async run(ctx, args) {
+      if (ctx.author.id !== OWNER_ID && ctx.author.id !== ctx.guild.ownerId)
+        return ctx.reply({ embeds: [err('Only the bot owner can change the bot avatar.')] });
+      let url = args[0] || null;
+      if (!url && !ctx.isSlash) {
+        const msgs = await ctx.channel.messages.fetch({ limit: 2 }).catch(() => null);
+        const last = msgs?.find(m => m.id !== ctx.channel?.lastMessageId);
+        const attach = last?.attachments.first();
+        if (attach) url = attach.url;
+      }
+      if (!url) return ctx.reply({ embeds: [err('Provide an image URL or attach an image.\nExample: `botavatar https://i.imgur.com/abc.png`')] });
+      try {
+        await client.user.setAvatar(url);
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🖼️ Bot Avatar Updated').setDescription('The bot\'s avatar has been changed.').setThumbnail(client.user.displayAvatarURL()).setTimestamp()] });
+      } catch (e) { ctx.reply({ embeds: [err(`Failed to update avatar: ${e.message}`)] }); }
+    },
+  },
+  botname: {
+    cat: 'botmgmt', usage: 'botname <new username>', desc: "Change the bot's username (owner only, 2/hour limit)",
+    async run(ctx, args) {
+      if (ctx.author.id !== OWNER_ID && ctx.author.id !== ctx.guild.ownerId)
+        return ctx.reply({ embeds: [err('Only the bot owner can change the bot username.')] });
+      const name = args.join(' ').trim();
+      if (!name) return ctx.reply({ embeds: [err('Provide a username. Example: `botname MyCoolBot`')] });
+      if (name.length < 2 || name.length > 32) return ctx.reply({ embeds: [err('Username must be 2–32 characters.')] });
+      try {
+        await client.user.setUsername(name);
+        ctx.reply({ embeds: [ok('✏️ Bot Username Updated', `Username changed to **${name}**.\n⚠️ Discord allows only **2 username changes per hour**.`)] });
+      } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}`)] }); }
+    },
+  },
+  botstatus: {
+    cat: 'botmgmt', usage: 'botstatus <watching|playing|listening|competing> <text>', desc: "Change the bot's status activity (owner only)",
+    async run(ctx, args) {
+      if (ctx.author.id !== OWNER_ID && ctx.author.id !== ctx.guild.ownerId)
+        return ctx.reply({ embeds: [err('Only the bot owner can change the bot status.')] });
+      const types = { watching: 3, playing: 0, listening: 2, competing: 5, streaming: 1 };
+      const typeKey = args[0]?.toLowerCase();
+      const text    = args.slice(1).join(' ').trim();
+      if (!typeKey || !types[typeKey] === undefined || !text)
+        return ctx.reply({ embeds: [info('botstatus Usage', '`botstatus <watching|playing|listening|competing> <text>`\n\nExample: `botstatus watching over the server`')] });
+      client.user.setActivity(text, { type: types[typeKey] ?? 3 });
+      ctx.reply({ embeds: [ok('🎮 Bot Status Updated', `Now **${typeKey}** *${text}*`)] });
+    },
+  },
+
+  // ── Fun & Utility ─────────────────────────────────────────────────────────────
+  snipe: {
+    cat: 'fun', usage: 'snipe', desc: 'Show the last deleted message in this channel',
+    async run(ctx) {
+      const s = snipeCache.get(ctx.channel.id);
+      if (!s) return ctx.reply({ embeds: [info('👻 Nothing to snipe', 'No deleted messages cached in this channel.')] });
+      const ago = Math.floor((Date.now() - s.deletedAt) / 1000);
+      ctx.reply({ embeds: [new EmbedBuilder()
+        .setColor(0xe74c3c)
+        .setTitle('👻 Sniped!')
+        .setDescription(s.content || '*[No text content]*')
+        .setAuthor({ name: s.author, iconURL: s.authorAvatar })
+        .addFields({ name: '⏱️ Deleted', value: `${ago}s ago`, inline: true })
+        .setImage(s.attachmentURL || null)
+        .setFooter({ text: 'Snipe cache cleared after 5 minutes' })
+        .setTimestamp(s.deletedAt)] });
+    },
+  },
+  poll: {
+    cat: 'fun', usage: 'poll <question>', desc: 'Create a quick yes/no poll with buttons',
+    async run(ctx, args) {
+      const question = args.join(' ').trim();
+      if (!question) return ctx.reply({ embeds: [err('Please provide a question. Example: `poll Is pizza the best food?`')] });
+      const pollId = `poll_${ctx.guild.id}_${Date.now()}`;
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle('📊 Poll')
+        .setDescription(`**${question}**`)
+        .addFields(
+          { name: '✅ Yes', value: '0 votes', inline: true },
+          { name: '❌ No',  value: '0 votes', inline: true },
+        )
+        .setFooter({ text: `Poll by ${ctx.author.tag}` })
+        .setTimestamp();
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`poll_yes_${pollId}`).setLabel('Yes').setEmoji('✅').setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`poll_no_${pollId}`).setLabel('No').setEmoji('❌').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`poll_end_${pollId}`).setLabel('End Poll').setEmoji('🔒').setStyle(ButtonStyle.Secondary),
+      );
+      await ctx.channel.send({ embeds: [embed], components: [row] });
+      if (ctx.isSlash) ctx.replyEphemeral({ content: '✅ Poll created!' });
+    },
+  },
+  '8ball': {
+    cat: 'fun', usage: '8ball <question>', desc: 'Ask the magic 8-ball',
+    async run(ctx, args) {
+      const question = args.join(' ').trim();
+      if (!question) return ctx.reply({ embeds: [err('Ask a question!')] });
+      const answers = [
+        { t: '✅ It is certain.',          c: 0x57f287 }, { t: '✅ It is decidedly so.',      c: 0x57f287 },
+        { t: '✅ Without a doubt.',         c: 0x57f287 }, { t: '✅ Yes definitely.',           c: 0x57f287 },
+        { t: '✅ You may rely on it.',      c: 0x57f287 }, { t: '✅ As I see it, yes.',         c: 0x57f287 },
+        { t: '✅ Most likely.',             c: 0x57f287 }, { t: '✅ Outlook good.',             c: 0x57f287 },
+        { t: '✅ Yes.',                     c: 0x57f287 }, { t: '✅ Signs point to yes.',       c: 0x57f287 },
+        { t: '⚪ Reply hazy, try again.',   c: 0xfee75c }, { t: '⚪ Ask again later.',         c: 0xfee75c },
+        { t: '⚪ Better not tell you now.', c: 0xfee75c }, { t: '⚪ Cannot predict now.',       c: 0xfee75c },
+        { t: '⚪ Concentrate and ask again.',c: 0xfee75c },
+        { t: '❌ Don\'t count on it.',      c: 0xed4245 }, { t: '❌ My reply is no.',          c: 0xed4245 },
+        { t: '❌ My sources say no.',       c: 0xed4245 }, { t: '❌ Outlook not so good.',     c: 0xed4245 },
+        { t: '❌ Very doubtful.',           c: 0xed4245 },
+      ];
+      const pick = answers[Math.floor(Math.random() * answers.length)];
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(pick.c).setTitle('🎱 Magic 8-Ball').addFields({ name: '❓ Question', value: question }, { name: '🎱 Answer', value: pick.t }).setFooter({ text: ctx.author.tag, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
+    },
+  },
+  coinflip: {
+    cat: 'fun', usage: 'coinflip', desc: 'Flip a coin — heads or tails',
+    async run(ctx) {
+      const result  = Math.random() < 0.5 ? 'Heads' : 'Tails';
+      const emoji   = result === 'Heads' ? '🪙' : '🔵';
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0xfee75c).setTitle(`${emoji} Coin Flip`).setDescription(`**${result}!**`).setFooter({ text: ctx.author.tag, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
+    },
+  },
+  remind: {
+    cat: 'fun', usage: 'remind <time> <message>  (e.g. remind 30m Check the oven)', desc: 'Set a DM reminder. Times: 1m 30m 1h 6h 12h 1d',
+    async run(ctx, args) {
+      const timeStr = args[0];
+      const msg     = args.slice(1).join(' ').trim();
+      if (!timeStr || !msg) return ctx.reply({ embeds: [err('Usage: `remind 30m Your message here`\nSupported: `1m` `30m` `1h` `6h` `12h` `1d`')] });
+      const units = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+      const match = timeStr.match(/^(\d+)([smhd])$/i);
+      if (!match) return ctx.reply({ embeds: [err('Invalid time format. Use: `5m`, `1h`, `30m`, `1d`')] });
+      const ms = parseInt(match[1]) * (units[match[2].toLowerCase()]);
+      if (ms < 5000)    return ctx.reply({ embeds: [err('Minimum reminder time is 5 seconds.')] });
+      if (ms > 86400000 * 7) return ctx.reply({ embeds: [err('Maximum reminder time is 7 days.')] });
+      const at = Date.now() + ms;
+      ctx.reply({ embeds: [ok('⏰ Reminder Set', `I'll DM you in **${timeStr}** about:\n> ${msg}`)] });
+      setTimeout(async () => {
+        const u = await client.users.fetch(ctx.author.id).catch(() => null);
+        if (u) u.send({ embeds: [new EmbedBuilder().setColor(0xf1c40f).setTitle('⏰ Reminder!').setDescription(msg).addFields({ name: '📍 Set in', value: ctx.guild.name, inline: true }, { name: '⏱️ Set', value: `<t:${Math.floor((at - ms) / 1000)}:R>`, inline: true }).setTimestamp()] }).catch(() => {});
+      }, ms);
+    },
+  },
+  giveaway: {
+    cat: 'fun', usage: 'giveaway <time> <winners> <prize>  (e.g. giveaway 1h 1 Nitro)', desc: 'Start a giveaway with automatic winner selection',
+    async run(ctx, args) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions to start a giveaway.')] });
+      const timeStr  = args[0];
+      const winCount = parseInt(args[1]);
+      const prize    = args.slice(2).join(' ').trim();
+      if (!timeStr || isNaN(winCount) || !prize)
+        return ctx.reply({ embeds: [err('Usage: `giveaway <time> <winners> <prize>`\nExample: `giveaway 1h 1 Discord Nitro`')] });
+      const units = { s: 1000, m: 60000, h: 3600000, d: 86400000 };
+      const match = timeStr.match(/^(\d+)([smhd])$/i);
+      if (!match) return ctx.reply({ embeds: [err('Invalid time. Use: `30s`, `5m`, `1h`, `1d`')] });
+      const ms    = parseInt(match[1]) * (units[match[2].toLowerCase()]);
+      if (ms < 10000)       return ctx.reply({ embeds: [err('Minimum giveaway duration is 10 seconds.')] });
+      if (ms > 86400000 * 14) return ctx.reply({ embeds: [err('Maximum giveaway duration is 14 days.')] });
+      if (winCount < 1 || winCount > 20) return ctx.reply({ embeds: [err('Winners must be between 1 and 20.')] });
+      const endsAt = Date.now() + ms;
+      const embed  = new EmbedBuilder()
+        .setColor(0xf1c40f)
+        .setTitle('🎉 GIVEAWAY!')
+        .setDescription(`**${prize}**\n\nClick the button below to enter!\n\n⏰ Ends: <t:${Math.floor(endsAt / 1000)}:R>\n🏆 Winners: **${winCount}**`)
+        .addFields({ name: '🎟️ Entries', value: '0', inline: true }, { name: '🎫 Hosted by', value: `<@${ctx.author.id}>`, inline: true })
+        .setFooter({ text: `Ends at` }).setTimestamp(endsAt);
+      const row = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('giveaway_enter_PLACEHOLDER').setLabel('Enter Giveaway').setEmoji('🎉').setStyle(ButtonStyle.Primary),
+      );
+      if (ctx.isSlash) await ctx.replyEphemeral({ content: '✅ Starting giveaway…' });
+      const msg = await ctx.channel.send({ embeds: [embed], components: [row] });
+      // Patch button with real message ID
+      await msg.edit({ components: [new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId(`giveaway_enter_${msg.id}`).setLabel('Enter Giveaway').setEmoji('🎉').setStyle(ButtonStyle.Primary),
+      )] });
+      giveaways.set(msg.id, { prize, hostId: ctx.author.id, guildId: ctx.guild.id, channelId: ctx.channel.id, winners: winCount, entries: new Set(), endsAt, ended: false });
+      setTimeout(() => endGiveaway(msg.id, ctx.guild), ms);
+    },
+  },
+
   vouchleader: {
     cat: 'social', usage: 'vouchleader', desc: 'Show the vouch leaderboard',
     async run(ctx) {
@@ -1093,6 +1275,36 @@ const COMMANDS = {
   },
 };
 
+// ─── Giveaway end helper ──────────────────────────────────────────────────────
+async function endGiveaway(messageId, guild) {
+  const gw = giveaways.get(messageId);
+  if (!gw || gw.ended) return;
+  gw.ended = true;
+  const ch  = guild.channels.cache.get(gw.channelId);
+  if (!ch) return;
+  const msg = await ch.messages.fetch(messageId).catch(() => null);
+  const entries = [...gw.entries];
+  const winnerIds = [];
+  const pool = [...entries];
+  for (let i = 0; i < Math.min(gw.winners, pool.length); i++) {
+    const idx = Math.floor(Math.random() * pool.length);
+    winnerIds.push(pool.splice(idx, 1)[0]);
+  }
+  const winnerMentions = winnerIds.length ? winnerIds.map(id => `<@${id}>`).join(', ') : 'No one entered 😢';
+  const endEmbed = new EmbedBuilder()
+    .setColor(winnerIds.length ? 0x57f287 : 0xed4245)
+    .setTitle('🎉 Giveaway Ended!')
+    .setDescription(`**${gw.prize}**\n\n🏆 **Winner${winnerIds.length !== 1 ? 's' : ''}:** ${winnerMentions}`)
+    .addFields(
+      { name: '🎟️ Total Entries', value: `${entries.length}`, inline: true },
+      { name: '🎫 Hosted by',     value: `<@${gw.hostId}>`,  inline: true },
+    )
+    .setFooter({ text: 'Giveaway ended' })
+    .setTimestamp();
+  if (msg) await msg.edit({ embeds: [endEmbed], components: [] }).catch(() => {});
+  if (winnerIds.length) ch.send({ content: `🎉 Congratulations ${winnerMentions}! You won **${gw.prize}**!` }).catch(() => {});
+}
+
 // ─── Help menu ────────────────────────────────────────────────────────────────
 const CATS = {
   admin:      { emoji: '⚙️', label: 'Admin',      desc: 'Setup & configuration',          color: 0xeb459e },
@@ -1101,6 +1313,8 @@ const CATS = {
   utility:    { emoji: '🛠️', label: 'Utility',    desc: 'Say, embed, userinfo, ping',     color: 0x5865f2 },
   tickets:    { emoji: '🎫', label: 'Tickets',    desc: 'Ticket panel, close, transcript',color: 0xfee75c },
   social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
+  fun:        { emoji: '🎲', label: 'Fun',        desc: 'Poll, 8ball, giveaway, remind, snipe, coinflip', color: 0xf39c12 },
+  botmgmt:    { emoji: '🤖', label: 'Bot Mgmt',  desc: 'Avatar, username & status (owner only)', color: 0x9b59b6 },
   general:    { emoji: '📋', label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
 };
 
@@ -1322,6 +1536,31 @@ const SLASH_DEFS = [
 
   new SlashCommandBuilder().setName('setdeallog').setDescription('Set the channel where all deal outcomes are logged').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(o => o.setName('channel').setDescription('Deal log channel').setRequired(true)),
+
+  // Fun
+  new SlashCommandBuilder().setName('snipe').setDescription('Show the last deleted message in this channel'),
+  new SlashCommandBuilder().setName('poll').setDescription('Create a yes/no poll')
+    .addStringOption(o => o.setName('question').setDescription('Your poll question').setRequired(true)),
+  new SlashCommandBuilder().setName('8ball').setDescription('Ask the magic 8-ball')
+    .addStringOption(o => o.setName('question').setDescription('Your question').setRequired(true)),
+  new SlashCommandBuilder().setName('coinflip').setDescription('Flip a coin — heads or tails'),
+  new SlashCommandBuilder().setName('remind').setDescription('Set a DM reminder')
+    .addStringOption(o => o.setName('time').setDescription('Time e.g. 30m, 1h, 1d').setRequired(true))
+    .addStringOption(o => o.setName('message').setDescription('What to remind you about').setRequired(true)),
+  new SlashCommandBuilder().setName('giveaway').setDescription('Start a giveaway').setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addStringOption(o => o.setName('time').setDescription('Duration e.g. 30m, 1h, 1d').setRequired(true))
+    .addIntegerOption(o => o.setName('winners').setDescription('Number of winners (1–20)').setMinValue(1).setMaxValue(20).setRequired(true))
+    .addStringOption(o => o.setName('prize').setDescription('What are you giving away?').setRequired(true)),
+
+  // Bot management
+  new SlashCommandBuilder().setName('botavatar').setDescription("Change the bot's avatar (owner only)")
+    .addStringOption(o => o.setName('url').setDescription('Direct image URL').setRequired(true)),
+  new SlashCommandBuilder().setName('botname').setDescription("Change the bot's username (owner only, 2/hour limit)")
+    .addStringOption(o => o.setName('name').setDescription('New username (2–32 chars)').setRequired(true)),
+  new SlashCommandBuilder().setName('botstatus').setDescription("Change the bot's activity status (owner only)")
+    .addStringOption(o => o.setName('type').setDescription('Activity type').setRequired(true)
+      .addChoices({ name: 'watching', value: 'watching' }, { name: 'playing', value: 'playing' }, { name: 'listening', value: 'listening' }, { name: 'competing', value: 'competing' }))
+    .addStringOption(o => o.setName('text').setDescription('Status text').setRequired(true)),
 ];
 
 // ─── Resolve a guild member from interaction options ──────────────────────────
@@ -1355,6 +1594,67 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId === 'ticket_claim') {
       if (!isMod(interaction.member)) return interaction.reply({ embeds: [err('Only staff can claim.')], ephemeral: true });
       return interaction.update({ embeds: [...interaction.message.embeds, ok('Claimed', `Claimed by ${interaction.member}`)], components: [] });
+    }
+
+    // Poll buttons
+    if (interaction.customId.startsWith('poll_yes_') || interaction.customId.startsWith('poll_no_') || interaction.customId.startsWith('poll_end_')) {
+      const isPollEnd = interaction.customId.startsWith('poll_end_');
+      const isPollYes = interaction.customId.startsWith('poll_yes_');
+      const oldEmbed  = interaction.message.embeds[0];
+      if (!oldEmbed) return interaction.reply({ embeds: [err('Poll data not found.')], ephemeral: true });
+
+      if (isPollEnd) {
+        const isHost = interaction.message.embeds[0]?.footer?.text?.includes(interaction.user.tag) || isMod(interaction.member);
+        if (!isHost) return interaction.reply({ embeds: [err('Only the poll creator or a moderator can end the poll.')], ephemeral: true });
+        const fields  = oldEmbed.fields || [];
+        const yesField = fields.find(f => f.name.includes('Yes'));
+        const noField  = fields.find(f => f.name.includes('No'));
+        const yesV = parseInt(yesField?.value) || 0;
+        const noV  = parseInt(noField?.value) || 0;
+        const total = yesV + noV;
+        const winner = yesV > noV ? '✅ Yes wins!' : noV > yesV ? '❌ No wins!' : '🤝 It\'s a tie!';
+        const endedEmbed = EmbedBuilder.from(oldEmbed)
+          .setColor(yesV > noV ? 0x57f287 : noV > yesV ? 0xed4245 : 0x5865f2)
+          .setTitle('📊 Poll — Ended')
+          .addFields({ name: '🏆 Result', value: `${winner}\n*${total} total vote${total !== 1 ? 's' : ''}*`, inline: false });
+        return interaction.update({ embeds: [endedEmbed], components: [] });
+      }
+
+      // Vote tracking — use a simple field-based counter (stateless)
+      const fields = (oldEmbed.fields || []).map(f => ({ ...f }));
+      const yesIdx = fields.findIndex(f => f.name.includes('Yes'));
+      const noIdx  = fields.findIndex(f => f.name.includes('No'));
+      if (yesIdx === -1 || noIdx === -1) return interaction.reply({ embeds: [err('Poll data corrupted.')], ephemeral: true });
+      const yesCount = parseInt(fields[yesIdx].value) || 0;
+      const noCount  = parseInt(fields[noIdx].value)  || 0;
+      if (isPollYes) fields[yesIdx] = { ...fields[yesIdx], value: `${yesCount + 1} votes` };
+      else           fields[noIdx]  = { ...fields[noIdx],  value: `${noCount  + 1} votes` };
+      const updated = EmbedBuilder.from(oldEmbed).spliceFields(0, fields.length, ...fields);
+      await interaction.update({ embeds: [updated], components: interaction.message.components });
+      return;
+    }
+
+    // Giveaway enter button
+    if (interaction.customId.startsWith('giveaway_enter_')) {
+      const msgId = interaction.customId.slice('giveaway_enter_'.length);
+      const gw    = giveaways.get(msgId);
+      if (!gw || gw.ended) return interaction.reply({ embeds: [err('This giveaway has already ended.')], ephemeral: true });
+      if (gw.entries.has(interaction.user.id)) {
+        gw.entries.delete(interaction.user.id);
+        await interaction.reply({ embeds: [info('🎟️ Left Giveaway', `You have been **removed** from the **${gw.prize}** giveaway.\n*Click the button again to re-enter.*`)], ephemeral: true });
+      } else {
+        gw.entries.add(interaction.user.id);
+        await interaction.reply({ embeds: [ok('🎉 Entered Giveaway!', `You are now entered in the **${gw.prize}** giveaway!\n*Click again to leave.*`)], ephemeral: true });
+      }
+      // Update entry count on the message
+      const origMsg = await interaction.channel.messages.fetch(msgId).catch(() => null);
+      if (origMsg) {
+        const oldE  = origMsg.embeds[0];
+        const newFields = (oldE?.fields || []).map(f => f.name.includes('Entries') ? { ...f, value: `${gw.entries.size}` } : f);
+        const newEmbed  = EmbedBuilder.from(oldE).spliceFields(0, newFields.length, ...newFields);
+        origMsg.edit({ embeds: [newEmbed] }).catch(() => {});
+      }
+      return;
     }
 
     // Deal buttons
@@ -1620,6 +1920,28 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const ch = options.getChannel('channel');
         return await COMMANDS.setdeallog.run(ctx, ch ? [ch.id] : []);
       }
+      case 'snipe':    return await COMMANDS.snipe.run(ctx, []);
+      case 'poll':     return await COMMANDS.poll.run(ctx, (options.getString('question') || '').split(' '));
+      case '8ball':    return await COMMANDS['8ball'].run(ctx, (options.getString('question') || '').split(' '));
+      case 'coinflip': return await COMMANDS.coinflip.run(ctx, []);
+      case 'remind': {
+        const t = options.getString('time') || '';
+        const m = options.getString('message') || '';
+        return await COMMANDS.remind.run(ctx, [t, ...m.split(' ')]);
+      }
+      case 'giveaway': {
+        const t = options.getString('time') || '';
+        const w = options.getInteger('winners') || 1;
+        const p = options.getString('prize') || '';
+        return await COMMANDS.giveaway.run(ctx, [t, String(w), ...p.split(' ')]);
+      }
+      case 'botavatar': return await COMMANDS.botavatar.run(ctx, [options.getString('url') || '']);
+      case 'botname':   return await COMMANDS.botname.run(ctx, (options.getString('name') || '').split(' '));
+      case 'botstatus': {
+        const type = options.getString('type') || '';
+        const text = options.getString('text') || '';
+        return await COMMANDS.botstatus.run(ctx, [type, ...text.split(' ')]);
+      }
     }
   } catch (e) {
     console.error(`Slash error [${commandName}]:`, e);
@@ -1779,7 +2101,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'snipe', 'poll', '8ball', 'coinflip', 'remind', 'giveaway', 'botavatar', 'botname', 'botstatus'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
@@ -1794,6 +2116,20 @@ client.on(Events.MessageCreate, async (message) => {
 
   try { await command.run(ctx, args, target); }
   catch (e) { console.error(`Prefix error [${cmdName}]:`, e); message.reply({ embeds: [err('An error occurred.')] }).catch(() => {}); }
+});
+
+// ─── Snipe: cache deleted messages ───────────────────────────────────────────
+client.on(Events.MessageDelete, (message) => {
+  if (message.author?.bot || !message.guild) return;
+  const content = message.content || '';
+  const attach  = message.attachments.first()?.url || null;
+  if (!content && !attach) return;
+  snipeCache.set(message.channel.id, {
+    content, author: message.author?.tag || 'Unknown',
+    authorAvatar: message.author?.displayAvatarURL() || null,
+    deletedAt: Date.now(), attachmentURL: attach,
+  });
+  setTimeout(() => snipeCache.delete(message.channel.id), 5 * 60 * 1000); // expire after 5 min
 });
 
 // ─── Anti-Nuke Event Listeners ────────────────────────────────────────────────
