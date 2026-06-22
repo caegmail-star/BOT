@@ -87,18 +87,41 @@ async function punishNuker(guild, userId, reason) {
   } catch (e) { console.error('Anti-nuke punish error:', e.message); }
 }
 
+// ─── Custom Emoji Constants ───────────────────────────────────────────────────
+const E = {
+  check:    '<:senpai_check_mark_green:1300052669204795533>',
+  deny:     '<:senpai_denied:1300056766578688050>',
+  warn:     '<a:Exclamation:1502253317772804098>',
+  arrow:    '<a:arrow_arrow:1485705096980336922>',
+  hash:     '<a:HASH:1486626462508253304>',
+  stock:    '<a:stock:1485971917411451040>',
+  gift:     '<a:giftbox:1485971920758378599>',
+  nitroA:   '<a:NITRO:1506547748441161728>',
+  nitro:    '<:nitro:1485971892614725693>',
+  boost:    '<a:boost:1485971898620842117>',
+  flower:   '<:lmhy_flower:1502257480422527169>',
+  emoji10:  '<:emoji_10:1514928759382474772>',
+  secure:   '<:secure_net16:1503598566013407273>',
+  rules:    '<:RULES_RULES:1510076943830089781>',
+  cart:     '<:cart:1486626438097403995>',
+  setting:  '<:spider_setting:1072838047084843018>',
+  staff:    '<:staff:1510078278504022186>',
+  mod:      '<:Moderator:1433718499791994892>',
+  bots:     '<:ml_f_bots:1433637091622916116>',
+};
+
 // ─── Embed helpers ────────────────────────────────────────────────────────────
-const ok   = (t, d) => new EmbedBuilder().setColor(0x57f287).setTitle(`✅ ${t}`).setDescription(d).setTimestamp();
-const err  = (d)    => new EmbedBuilder().setColor(0xed4245).setTitle('❌ Error').setDescription(d).setTimestamp();
-const info = (t, d) => new EmbedBuilder().setColor(0x5865f2).setTitle(t).setDescription(d).setTimestamp();
-const warn = (t, d) => new EmbedBuilder().setColor(0xfee75c).setTitle(`⚠️ ${t}`).setDescription(d).setTimestamp();
+const ok   = (t, d) => new EmbedBuilder().setColor(0x57f287).setTitle(`${E.check} ${t}`).setDescription(d).setTimestamp();
+const err  = (d)    => new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Error`).setDescription(d).setTimestamp();
+const info = (t, d) => new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.arrow} ${t}`).setDescription(d).setTimestamp();
+const warn = (t, d) => new EmbedBuilder().setColor(0xfee75c).setTitle(`${E.warn} ${t}`).setDescription(d).setTimestamp();
 
 // ─── Professional mod embed ───────────────────────────────────────────────────
 // Rich embed with target thumbnail, moderator footer, action-specific color
 const MOD_COLORS = { ban:0xe74c3c, kick:0xe67e22, mute:0xf39c12, unmute:0x2ecc71, warn:0xfee75c, unban:0x2ecc71, clearwarns:0x3498db, nickname:0x9b59b6, role:0x5865f2 };
 function modEmbed(action, mod, target, reason, fields = []) {
   const color = MOD_COLORS[action.toLowerCase()] ?? 0x5865f2;
-  const icons  = { ban:'🔨', kick:'👢', mute:'🔇', unmute:'🔊', warn:'⚠️', unban:'✅', clearwarns:'🗑️', nickname:'✏️', role:'🏷️' };
+  const icons  = { ban:E.mod, kick:E.mod, mute:E.warn, unmute:E.check, warn:E.warn, unban:E.check, clearwarns:E.check, nickname:E.setting, role:E.staff };
   const icon   = icons[action.toLowerCase()] ?? '⚡';
   return new EmbedBuilder()
     .setColor(color)
@@ -245,7 +268,7 @@ async function createTicket(guild, member) {
   );
   await channel.send({
     content: `${member}${cfg.modRole ? ` <@&${cfg.modRole}>` : ''}`,
-    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('🎫 Ticket Opened').setDescription(`Welcome ${member}!\nDescribe your issue and staff will help shortly.`).addFields({ name: 'Close', value: 'Button below or `close` command' }).setFooter({ text: guild.name, iconURL: guild.iconURL() }).setTimestamp()],
+    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.hash} Ticket Opened`).setDescription(`Welcome ${member}!\nDescribe your issue and staff will help shortly.`).addFields({ name: 'Close', value: 'Button below or `close` command' }).setFooter({ text: guild.name, iconURL: guild.iconURL() }).setTimestamp()],
     components: [row],
   });
   return { channel, existing: false };
@@ -263,9 +286,9 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
       files: [file],
     });
   } catch {}
-  sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle('🔒 Ticket Closed').setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
+  sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Ticket Closed`).setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
   openTickets.delete(channel.id);
-  await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle('🔒 Closing in 5 seconds…').setDescription(`Reason: ${reason}`).setTimestamp()] });
+  await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Closing in 5 seconds…`).setDescription(`Reason: ${reason}`).setTimestamp()] });
   setTimeout(() => channel.delete().catch(() => {}), 5000);
 }
 
@@ -666,7 +689,7 @@ const COMMANDS = {
     async run(ctx, args) {
       if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
       await ctx.channel.permissionOverwrites.edit(ctx.guild.roles.everyone, { SendMessages: false });
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle('🔒 Channel Locked')
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle(`${E.staff} Channel Locked`)
         .setDescription(`${ctx.channel} has been locked.\n**Reason:** ${args.join(' ') || 'No reason provided'}`)
         .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
     },
@@ -805,7 +828,7 @@ const COMMANDS = {
       const dealId     = `${ctx.guild.id}_${ctx.channel.id}_${Date.now()}`;
       const embed = new EmbedBuilder()
         .setColor(0xf1c40f)
-        .setTitle('🤝 Deal Proposal')
+        .setTitle(`${E.cart} Deal Proposal`)
         .addFields(
           { name: '📦 Product',     value: product,                                            inline: true  },
           { name: '👤 Proposed by', value: `<@${proposerId}>`,                                 inline: true  },
@@ -909,7 +932,7 @@ const COMMANDS = {
       if (bio.length > 190) return ctx.reply({ embeds: [err('Bio must be 190 characters or less.')] });
       try {
         await client.user.edit({ bio });
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle('📝 Bot Bio Updated').setDescription(`New bio:\n> ${bio}`).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle(`${E.bots} Bot Bio Updated`).setDescription(`New bio:\n> ${bio}`).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Bots may need verified bot status to set a bio.*`)] }); }
     },
   },
@@ -1018,7 +1041,7 @@ const COMMANDS = {
     async run(ctx) {
       if (!isAdmin(ctx.member) && ctx.author.id !== OWNER_ID)
         return ctx.reply({ embeds: [err('You need Administrator permissions to reboot the bot.')] });
-      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Rebooting…').setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle(`${E.warn} Rebooting…`).setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
       setTimeout(() => process.exit(0), 1500);
     },
   },
@@ -1165,7 +1188,7 @@ const COMMANDS = {
       );
       ctx.channel.send({ embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle('🎫 Support Tickets')
+        .setTitle(`${E.hash} Support Tickets`)
         .setDescription(note)
         .setFooter({ text: ctx.guild.name, iconURL: ctx.guild.iconURL() })
         .setTimestamp()], components: [row] });
@@ -1260,7 +1283,7 @@ const COMMANDS = {
       const wlUsers = await Promise.all(wl.map(id => client.users.fetch(id).catch(() => id)));
       return ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(cfg.antinuke ? 0x57f287 : 0xed4245)
-        .setTitle(`🛡️ Anti-Nuke — ${cfg.antinuke ? '✅ Enabled' : '❌ Disabled'}`)
+        .setTitle(`${E.secure} Anti-Nuke — ${cfg.antinuke ? E.check + ' Enabled' : E.deny + ' Disabled'}`)
         .setDescription('Monitors and auto-bans users who attempt to nuke (destroy) the server.')
         .addFields(
           { name: '⚡ Thresholds (per 10s)', value: [
@@ -1282,15 +1305,15 @@ const COMMANDS = {
 
 // ─── Help menu ────────────────────────────────────────────────────────────────
 const CATS = {
-  admin:      { emoji: '⚙️', label: 'Admin',      desc: 'Setup & configuration',              color: 0xeb459e },
-  moderation: { emoji: '🔨', label: 'Moderation', desc: 'Ban, kick, mute, warn & more',       color: 0xed4245 },
-  antinuke:   { emoji: '🛡️', label: 'Anti-Nuke',  desc: 'Server nuke protection',             color: 0xff4444 },
-  utility:    { emoji: '🛠️', label: 'Utility',    desc: 'Say, embed, userinfo, ping',         color: 0x5865f2 },
-  tickets:    { emoji: '🎫', label: 'Tickets',    desc: 'Ticket panel, close, transcript',    color: 0xfee75c },
-  social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
-  unique:     { emoji: '🌟', label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
-  botmgmt:    { emoji: '🤖', label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
-  general:    { emoji: '📋', label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
+  admin:      { emoji: E.setting, label: 'Admin',      desc: 'Setup & configuration',              color: 0xeb459e },
+  moderation: { emoji: E.mod,     label: 'Moderation', desc: 'Ban, kick, mute, warn & more',       color: 0xed4245 },
+  antinuke:   { emoji: E.secure,  label: 'Anti-Nuke',  desc: 'Server nuke protection',             color: 0xff4444 },
+  utility:    { emoji: E.setting, label: 'Utility',    desc: 'Say, embed, userinfo, ping',         color: 0x5865f2 },
+  tickets:    { emoji: E.hash,    label: 'Tickets',    desc: 'Ticket panel, close, transcript',    color: 0xfee75c },
+  social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
+  unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
+  botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
+  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
 };
 
 async function sendHelpMenu(ctx) {
@@ -1593,11 +1616,11 @@ client.on(Events.InteractionCreate, async (interaction) => {
       deal.respondedAt = Date.now();
 
       const color  = isAccept ? 0x57f287 : 0xed4245;
-      const status = isAccept ? '✅ Accepted' : '❌ Rejected';
+      const status = isAccept ? `${E.check} Accepted` : `${E.deny} Rejected`;
 
       const updatedEmbed = new EmbedBuilder()
         .setColor(color)
-        .setTitle('🤝 Deal Proposal')
+        .setTitle(`${E.cart} Deal Proposal`)
         .addFields(
           { name: '📦 Product',      value: deal.product,                      inline: true  },
           { name: '👤 Proposed by',  value: `<@${deal.proposerId}>`,           inline: true  },
@@ -1617,7 +1640,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (logCh) {
           logCh.send({ embeds: [new EmbedBuilder()
             .setColor(color)
-            .setTitle(`🤝 Deal ${isAccept ? 'Accepted' : 'Rejected'}`)
+            .setTitle(`${E.cart} Deal ${isAccept ? 'Accepted' : 'Rejected'}`)
             .addFields(
               { name: '📦 Product',      value: deal.product,                              inline: true  },
               { name: '🏷️ Ticket',       value: `<#${deal.channelId}>`,                  inline: true  },
