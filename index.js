@@ -612,9 +612,12 @@ const COMMANDS = {
       if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
       if (!target) return ctx.reply({ embeds: [err('Please provide a member to mute.')] });
       if (target.id === ctx.author.id) return ctx.reply({ embeds: [err('You cannot mute yourself.')] });
-      const dur    = parseInt(args[0]) || 10;
-      const reason = (isNaN(parseInt(args[0])) ? args : args.slice(1)).join(' ') || 'No reason provided';
-      if (dur < 1 || dur > 40320) return ctx.reply({ embeds: [err('Duration must be 1–40320 minutes (28 days max).')] });
+      const rawDur = parseInt(args[0]);
+      const hasExplicitDur = args[0] && !isNaN(rawDur);
+      const dur    = hasExplicitDur ? rawDur : 10;
+      const reason = (hasExplicitDur ? args.slice(1) : args).join(' ') || 'No reason provided';
+      if (args[0] && isNaN(parseInt(args[0])) && !/^\d/.test(args[0]) === false) {/* not a number, treat as reason */}
+      if (hasExplicitDur && (dur < 1 || dur > 40320)) return ctx.reply({ embeds: [err('❌ Invalid time! Duration must be between 1 and 40320 minutes (28 days max).')] });
       try {
         await dmAction(target.user, 'Muted', ctx.guild.name, reason, `\n**Duration:** ${dur} minute${dur !== 1 ? 's' : ''}`);
         await target.timeout(dur * 60_000, reason);
@@ -1334,19 +1337,18 @@ const CATS = {
 };
 
 async function sendHelpMenu(ctx) {
-  const prefix = getPrefix(ctx.guild.id);
-  const embed  = new EmbedBuilder()
-    .setColor(0x5865f2).setTitle(`${E.rules} Ceas Bot — Help`)
-    .setDescription(
-      `**Prefix:** \`${prefix}\` or \`${prefix.toUpperCase()}\`  |  No-prefix: \`ceas <cmd>\`\n` +
-      `${E.arrow} **Reply trigger** — reply to any message with \`ban\`, \`kick\`, \`mute\`, etc.\n` +
-      `${E.check} **True no-prefix** — enable with \`${prefix}setnoprefix on\` so mods can type \`ban @user\` directly\n` +
-      `${E.e3b} **Role trigger** — reply to a message with just a role name to give/remove it\n\n` +
-      `${E.setting} First time? Run \`${prefix}config\` to view settings!\n\nSelect a category ${E.arrow}`
-    )
+  const botUser   = await client.user.fetch({ force: true }).catch(() => client.user);
+  const bannerURL = botUser.bannerURL?.({ size: 1024 }) ?? null;
+
+  const embed = new EmbedBuilder()
+    .setColor(0x5865f2)
+    .setTitle(`${E.rules} Ceas Bot — Help`)
     .addFields(Object.values(CATS).map(v => ({ name: `${v.emoji} ${v.label}`, value: v.desc, inline: true })))
-    .setFooter({ text: `${Object.keys(COMMANDS).length} commands | All also available as /slash commands` })
-    .setThumbnail(client.user.displayAvatarURL()).setTimestamp();
+    .setFooter({ text: `${Object.keys(COMMANDS).length} commands  •  All also available as /slash commands` })
+    .setThumbnail(client.user.displayAvatarURL())
+    .setTimestamp();
+
+  if (bannerURL) embed.setImage(bannerURL);
 
   const menu = new StringSelectMenuBuilder().setCustomId('help_menu').setPlaceholder('📂 Select a category…')
     .addOptions(Object.entries(CATS).map(([key, v]) => ({ label: v.label, value: key, description: v.desc, emoji: v.emoji })));
@@ -2000,29 +2002,6 @@ client.on(Events.MessageCreate, async (message) => {
         }
       }
 
-      // Role name trigger — reply with just a role name to give/remove it
-      if (isMod(message.member) && trigger && !COMMANDS[trigger]) {
-        const role = message.guild.roles.cache.find(r => r.name.toLowerCase() === stripped.toLowerCase());
-        if (role) {
-          const tMember = await message.guild.members.fetch(ref.author.id).catch(() => null);
-          if (tMember) {
-            const baseCtx = ctxFromMessage(message);
-            const ctx = {
-              ...baseCtx,
-              reply: async (opts) => {
-                const sent = await baseCtx.reply(opts);
-                if (sent) setTimeout(() => sent.delete().catch(() => {}), 5000);
-                return sent;
-              },
-            };
-            try {
-              await COMMANDS.role.run(ctx, [], tMember, role);
-              message.delete().catch(() => {});
-            } catch { ctx.reply({ embeds: [err('Failed to manage role.')] }); }
-            return;
-          }
-        }
-      }
     }
   }
 
