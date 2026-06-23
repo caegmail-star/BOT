@@ -87,19 +87,59 @@ async function punishNuker(guild, userId, reason) {
   } catch (e) { console.error('Anti-nuke punish error:', e.message); }
 }
 
+// ─── Custom Emoji Constants ───────────────────────────────────────────────────
+const E = {
+  check:   '<:emoji_1:1518570328559845539>',
+  deny:    '<:emoji_2:1518570359262154793>',
+  warn:    '<a:1000003084:1518572069896323174>',
+  info:    '<:info:1518572049042378886>',
+  arrow:   '<a:arrow_arrow:1518572000413487117>',
+  hash:    '<a:pb_y_chat:1518572054981509152>',
+  stock:   '<a:stock:1518571994508038156>',
+  gift:    '<a:giftbox:1518572043002581082>',
+  nitroA:  '<a:Boost:1518570980136718367>',
+  nitro:   '<:10337sparklesnitroboostt:1518572012975427685>',
+  boost:   '<a:Boost:1518570980136718367>',
+  flower:  '<:emoji_26:1518572775470530641>',
+  emoji10: '<:emoji_10:1518571988984139906>',
+  secure:  '<:antinuke:1518570604553437285>',
+  rules:   '<:RULES_RULES:1518572006453547038>',
+  cart:    '<:cart:1518572036803264583>',
+  setting: '<:spider_setting:1518572018658705448>',
+  staff:   '<:emoji_4:1518570431995576443>',
+  mod:     '<:emoji_5:1518570463788535949>',
+  bots:    '<:ml_f_bots:1433637091622916116>',
+  card:    '<:card:1518572030801219624>',
+  chat:    '<a:pb_y_chat:1518572054981509152>',
+  updates: '<a:pb_y_updates:1518572060551548938>',
+  wifi:    '<:wifi:1518570787383021738>',
+  sinfo:   '<:spider_info:1518572024241328230>',
+  antinuke:'<:antinuke:1518570604553437285>',
+  e1:  '<:emoji_1:1518570328559845539>',
+  e2:  '<:emoji_2:1518570359262154793>',
+  e3:  '<:emoji_3:1518570406825562303>',
+  e3b: '<:emoji_3:1518572085746597970>',
+  e4:  '<:emoji_4:1518570431995576443>',
+  e5:  '<:emoji_5:1518570463788535949>',
+  e10: '<:emoji_10:1518571988984139906>',
+  e26: '<:emoji_26:1518572775470530641>',
+  e27: '<:emoji_27:1518573391244951572>',
+  e28: '<:emoji_28:1518576868486283274>',
+};
+
 // ─── Embed helpers ────────────────────────────────────────────────────────────
-const ok   = (t, d) => new EmbedBuilder().setColor(0x57f287).setTitle(`✅ ${t}`).setDescription(d).setTimestamp();
-const err  = (d)    => new EmbedBuilder().setColor(0xed4245).setTitle('❌ Error').setDescription(d).setTimestamp();
-const info = (t, d) => new EmbedBuilder().setColor(0x5865f2).setTitle(t).setDescription(d).setTimestamp();
-const warn = (t, d) => new EmbedBuilder().setColor(0xfee75c).setTitle(`⚠️ ${t}`).setDescription(d).setTimestamp();
+const ok   = (t, d) => new EmbedBuilder().setColor(0x57f287).setTitle(`${E.check} ${t}`).setDescription(d).setTimestamp();
+const err  = (d)    => new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Error`).setDescription(d).setTimestamp();
+const info = (t, d) => new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.arrow} ${t}`).setDescription(d).setTimestamp();
+const warn = (t, d) => new EmbedBuilder().setColor(0xfee75c).setTitle(`${E.warn} ${t}`).setDescription(d).setTimestamp();
 
 // ─── Professional mod embed ───────────────────────────────────────────────────
 // Rich embed with target thumbnail, moderator footer, action-specific color
 const MOD_COLORS = { ban:0xe74c3c, kick:0xe67e22, mute:0xf39c12, unmute:0x2ecc71, warn:0xfee75c, unban:0x2ecc71, clearwarns:0x3498db, nickname:0x9b59b6, role:0x5865f2 };
 function modEmbed(action, mod, target, reason, fields = []) {
   const color = MOD_COLORS[action.toLowerCase()] ?? 0x5865f2;
-  const icons  = { ban:'🔨', kick:'👢', mute:'🔇', unmute:'🔊', warn:'⚠️', unban:'✅', clearwarns:'🗑️', nickname:'✏️', role:'🏷️' };
-  const icon   = icons[action.toLowerCase()] ?? '⚡';
+  const icons  = { ban:E.mod, kick:E.mod, mute:E.warn, unmute:E.check, warn:E.warn, unban:E.check, clearwarns:E.check, nickname:E.setting, role:E.staff };
+  const icon   = icons[action.toLowerCase()] ?? E.warn;
   return new EmbedBuilder()
     .setColor(color)
     .setAuthor({ name: `${icon} ${action}`, iconURL: target.user.displayAvatarURL() })
@@ -240,12 +280,12 @@ async function createTicket(guild, member) {
   const channel = await guild.channels.create(opts);
   openTickets.set(channel.id, { userId: member.id, createdAt: new Date() });
   const row = new ActionRowBuilder().addComponents(
-    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setEmoji('🔒').setStyle(ButtonStyle.Danger),
-    new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setEmoji('✋').setStyle(ButtonStyle.Success),
+    new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setEmoji({ id: '1518570359262154793', name: 'emoji_2' }).setStyle(ButtonStyle.Danger),
+    new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setEmoji({ id: '1518570406825562303', name: 'emoji_3' }).setStyle(ButtonStyle.Success),
   );
   await channel.send({
     content: `${member}${cfg.modRole ? ` <@&${cfg.modRole}>` : ''}`,
-    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('🎫 Ticket Opened').setDescription(`Welcome ${member}!\nDescribe your issue and staff will help shortly.`).addFields({ name: 'Close', value: 'Button below or `close` command' }).setFooter({ text: guild.name, iconURL: guild.iconURL() }).setTimestamp()],
+    embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.hash} Ticket Opened`).setDescription(`Welcome ${member}!\nDescribe your issue and staff will help shortly.`).addFields({ name: 'Close', value: 'Button below or `close` command' }).setFooter({ text: guild.name, iconURL: guild.iconURL() }).setTimestamp()],
     components: [row],
   });
   return { channel, existing: false };
@@ -259,13 +299,13 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
   try {
     const creator = await client.users.fetch(d.userId);
     await creator.send({
-      embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('📄 Your Ticket Transcript').setDescription(`Your ticket **#${channel.name}** was closed.\n**Reason:** ${reason}\n\nFull transcript attached.`).setTimestamp()],
+      embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.info} Your Ticket Transcript`).setDescription(`Your ticket **#${channel.name}** was closed.\n**Reason:** ${reason}\n\nFull transcript attached.`).setTimestamp()],
       files: [file],
     });
   } catch {}
-  sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle('🔒 Ticket Closed').setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
+  sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Ticket Closed`).setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
   openTickets.delete(channel.id);
-  await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle('🔒 Closing in 5 seconds…').setDescription(`Reason: ${reason}`).setTimestamp()] });
+  await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Closing in 5 seconds…`).setDescription(`Reason: ${reason}`).setTimestamp()] });
   setTimeout(() => channel.delete().catch(() => {}), 5000);
 }
 
@@ -288,9 +328,9 @@ async function runSetup(ctx, args) {
 
   if (sub === 'view') {
     const cfg = gc(ctx.guild.id);
-    return ctx.reply({ embeds: [info('⚙️ Server Configuration', [
+    return ctx.reply({ embeds: [info(`${E.setting} Server Configuration`, [
       `**Prefix:** \`${cfg.prefix || 'c.'}\``,
-      `**No-Prefix Mode:** ${cfg.noprefix ? '🟢 Enabled (mods only)' : '🔴 Disabled'}`,
+      `**No-Prefix Mode:** ${cfg.noprefix ? E.check + ' Enabled (mods only)' : E.deny + ' Disabled'}`,
       `**Welcome Channel:** ${cfg.welcomeChannel  ? `<#${cfg.welcomeChannel}>`         : 'Not set'}`,
       `**Welcome Message:** ${cfg.welcomeMsg      ? `\`${cfg.welcomeMsg.slice(0,60)}${cfg.welcomeMsg.length>60?'…':''}\`` : 'Default'}`,
       `**Welcome Image:**   ${cfg.welcomeImage    ? `[link](${cfg.welcomeImage})`       : 'Not set'}`,
@@ -316,7 +356,7 @@ async function runSetup(ctx, args) {
   const opt = SETUP_KEYS[sub];
   if (!opt) {
     const list = Object.entries(SETUP_KEYS).map(([k, v]) => `\`setup ${k}\` — ${v.label}`).join('\n');
-    return ctx.reply({ embeds: [info('⚙️ Setup Options', list + '\n\n`setup view` — current config\n`setup reset` — clear all')] });
+    return ctx.reply({ embeds: [info(`${E.setting} Setup Options`, list + '\n\n`setup view` — current config\n`setup reset` — clear all')] });
   }
 
   const val = args.slice(1).join(' ').trim();
@@ -349,7 +389,7 @@ async function runSetup(ctx, args) {
           '`{count}` — current member count',
           '',
           '**Example:**',
-          '`setup welcomemsg Welcome {user} to {server}! You are member #{count}. 🎉`',
+          '`setup welcomemsg Welcome {user} to {server}! You are member #{count}!`',
           '',
           'Leave it unset to use the default welcome message.',
         ].join('\n'))] });
@@ -461,8 +501,8 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const list = cfg.mediaWhitelist || [];
       if (sub === 'list') {
-        if (!list.length) return ctx.reply({ embeds: [info('📋 Media Whitelist', 'No entries.\nUse `mediawhitelist add @role` to exempt a role.')] });
-        return ctx.reply({ embeds: [info('📋 Media Whitelist', list.map(id => `• <@&${id}> / <@${id}>`).join('\n') + '\n\n*Each shows role & user format — only the correct type will resolve.*')] });
+        if (!list.length) return ctx.reply({ embeds: [info(`${E.rules} Media Whitelist`, 'No entries.\nUse `mediawhitelist add @role` to exempt a role.')] });
+        return ctx.reply({ embeds: [info(`${E.rules} Media Whitelist`, list.map(id => `• <@&${id}> / <@${id}>`).join('\n') + '\n\n*Each shows role & user format — only the correct type will resolve.*')] });
       }
       const rawId = args[1]?.replace(/[^0-9]/g, '');
       if (!rawId) return ctx.reply({ embeds: [err('Please mention a role or user.')] });
@@ -506,13 +546,13 @@ const COMMANDS = {
         return ctx.reply({ embeds: [ok('No-Prefix Mode Enabled',
           'Moderators can now use commands with no prefix at all.\n\n' +
           '**Examples:** `ban @user spam` • `kick @user` • `mute @user 10 caps`\n\n' +
-          '⚠️ Only members with the Mod or Admin role can trigger commands this way.')] });
+          E.warn + ' Only members with the Mod or Admin role can trigger commands this way.'] });
       }
       if (toggle === 'off') {
         setGC(ctx.guild.id, 'noprefix', false);
         return ctx.reply({ embeds: [ok('No-Prefix Mode Disabled', `Commands now require \`${getPrefix(ctx.guild.id)}\` or \`ceas <cmd>\`.`)] });
       }
-      ctx.reply({ embeds: [info('No-Prefix Mode', `**Status:** ${cfg.noprefix ? '🟢 Enabled' : '🔴 Disabled'}\n\nUse \`setnoprefix on\` or \`setnoprefix off\`.`)] });
+      ctx.reply({ embeds: [info('No-Prefix Mode', `**Status:** ${cfg.noprefix ? E.check + ' Enabled' : E.deny + ' Disabled'}\n\nUse \`setnoprefix on\` or \`setnoprefix off\`.`)] });
     },
   },
 
@@ -542,7 +582,7 @@ const COMMANDS = {
         const user   = await client.users.fetch(userId);
         const reason = args.slice(1).join(' ') || 'No reason provided';
         await ctx.guild.bans.remove(userId, reason);
-        const e = new EmbedBuilder().setColor(0x2ecc71).setAuthor({ name: `✅ Unbanned`, iconURL: user.displayAvatarURL() })
+        const e = new EmbedBuilder().setColor(0x2ecc71).setAuthor({ name: `${E.check} Unbanned`, iconURL: user.displayAvatarURL() })
           .setDescription(`**User:** ${user.tag}\n**ID:** \`${user.id}\`\n**Reason:** ${reason}`)
           .setThumbnail(user.displayAvatarURL({ size: 256 }))
           .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp();
@@ -608,7 +648,7 @@ const COMMANDS = {
       ctx.reply({ embeds: [e] });
       sendLog(ctx.guild, e);
       target.user.send({ embeds: [new EmbedBuilder().setColor(0xfee75c)
-        .setTitle(`⚠️ Warning — ${ctx.guild.name}`)
+        .setTitle(`${E.warn} Warning — ${ctx.guild.name}`)
         .setDescription(`You received a warning in **${ctx.guild.name}**.\n**Reason:** ${reason}`)
         .addFields({ name: 'Total Warnings', value: `${count}`, inline: true }, { name: 'Issued by', value: ctx.author.tag, inline: true })
         .setFooter({ text: 'Contact a staff member if you believe this is a mistake.' })
@@ -623,10 +663,10 @@ const COMMANDS = {
       const list = warnings.get(target.id) || [];
       if (!list.length) return ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2)
         .setAuthor({ name: `Warnings — ${target.user.tag}`, iconURL: target.user.displayAvatarURL() })
-        .setDescription('✅ No warnings on record for this member.')
+        .setDescription(`${E.check} No warnings on record for this member.`)
         .setThumbnail(target.user.displayAvatarURL({ size: 256 })).setTimestamp()] });
       ctx.reply({ embeds: [new EmbedBuilder().setColor(0xfee75c)
-        .setAuthor({ name: `⚠️ Warnings — ${target.user.tag} (${list.length})`, iconURL: target.user.displayAvatarURL() })
+        .setAuthor({ name: `${E.warn} Warnings — ${target.user.tag} (${list.length})`, iconURL: target.user.displayAvatarURL() })
         .setDescription(list.map((w, i) => `\`${i + 1}.\` **${w.reason}**\n↳ *${w.moderator}* • <t:${Math.floor(new Date(w.date).getTime() / 1000)}:R>`).join('\n\n'))
         .setThumbnail(target.user.displayAvatarURL({ size: 256 })).setTimestamp()] });
     },
@@ -655,7 +695,7 @@ const COMMANDS = {
       const col = Array.isArray(msgs) ? msgs : [...msgs.values()];
       const deleted = await ctx.channel.bulkDelete(col, true);
       const r = await ctx.channel.send({ embeds: [new EmbedBuilder().setColor(0x57f287)
-        .setTitle('🗑️ Purge Complete')
+        .setTitle(`${E.check} Purge Complete`)
         .setDescription(`Deleted **${deleted.size}** message${deleted.size !== 1 ? 's' : ''}${filterUser ? ` from ${filterUser.user.tag}` : ''}.`)
         .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
       setTimeout(() => r.delete().catch(() => {}), 5000);
@@ -666,7 +706,7 @@ const COMMANDS = {
     async run(ctx, args) {
       if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
       await ctx.channel.permissionOverwrites.edit(ctx.guild.roles.everyone, { SendMessages: false });
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle('🔒 Channel Locked')
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0xe74c3c).setTitle(`${E.staff} Channel Locked`)
         .setDescription(`${ctx.channel} has been locked.\n**Reason:** ${args.join(' ') || 'No reason provided'}`)
         .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
     },
@@ -676,7 +716,7 @@ const COMMANDS = {
     async run(ctx) {
       if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
       await ctx.channel.permissionOverwrites.edit(ctx.guild.roles.everyone, { SendMessages: null });
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x2ecc71).setTitle('🔓 Channel Unlocked')
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x2ecc71).setTitle(`${E.check} Channel Unlocked`)
         .setDescription(`${ctx.channel} is now open.`)
         .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
     },
@@ -756,15 +796,15 @@ const COMMANDS = {
       const idx  = list.findIndex(v => v.fromId === ctx.author.id);
       if (idx !== -1) {
         list[idx] = { fromId: ctx.author.id, fromTag: ctx.author.tag, comment, date: new Date().toISOString() };
-        const msg = await ctx.reply({ embeds: [ok('Vouch Updated', `Updated vouch for **${target.user.tag}**.\n💬 *"${comment}"*`)] });
+        const msg = await ctx.reply({ embeds: [ok('Vouch Updated', `Updated vouch for **${target.user.tag}**.\n${E.chat} *"${comment}"*`)] });
         if (!ctx.isSlash && msg) setTimeout(() => msg.delete().catch(() => {}), 6000);
         return;
       }
       list.push({ fromId: ctx.author.id, fromTag: ctx.author.tag, comment, date: new Date().toISOString() });
       const msg = await ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x57f287)
-        .setAuthor({ name: `⭐ Vouched!`, iconURL: target.user.displayAvatarURL() })
-        .setDescription(`**${ctx.author.tag}** vouched for **${target.user.tag}**.\n💬 *"${comment}"*`)
+        .setAuthor({ name: `${E.stock} Vouched!`, iconURL: target.user.displayAvatarURL() })
+        .setDescription(`**${ctx.author.tag}** vouched for **${target.user.tag}**.\n${E.chat} *"${comment}"*`)
         .addFields({ name: 'Total Vouches', value: `${list.length}`, inline: true })
         .setThumbnail(target.user.displayAvatarURL({ size: 128 }))
         .setTimestamp()] });
@@ -777,7 +817,7 @@ const COMMANDS = {
       const t    = target || ctx.member;
       const list = vouches.get(t.id) || [];
       if (!list.length) return ctx.reply({ embeds: [info(`Vouches — ${t.user.tag}`, 'No vouches yet.')] });
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(`⭐ Vouches — ${t.user.tag} (${list.length})`).setDescription(list.map((v, i) => `**${i + 1}.** <t:${Math.floor(new Date(v.date).getTime() / 1000)}:R> by **${v.fromTag}** — *"${v.comment}"*`).join('\n')).setThumbnail(t.user.displayAvatarURL({ size: 128 })).setTimestamp()] });
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(`${E.stock} Vouches — ${t.user.tag} (${list.length})`).setDescription(list.map((v, i) => `**${i + 1}.** <t:${Math.floor(new Date(v.date).getTime() / 1000)}:R> by **${v.fromTag}** — *"${v.comment}"*`).join('\n')).setThumbnail(t.user.displayAvatarURL({ size: 128 })).setTimestamp()] });
     },
   },
   unvouch: {
@@ -805,23 +845,23 @@ const COMMANDS = {
       const dealId     = `${ctx.guild.id}_${ctx.channel.id}_${Date.now()}`;
       const embed = new EmbedBuilder()
         .setColor(0xf1c40f)
-        .setTitle('🤝 Deal Proposal')
+        .setTitle(`${E.cart} Deal Proposal`)
         .addFields(
-          { name: '📦 Product',     value: product,                                            inline: true  },
-          { name: '👤 Proposed by', value: `<@${proposerId}>`,                                 inline: true  },
-          { name: '🎯 Proposed to', value: targetId ? `<@${targetId}>` : 'Staff in ticket',   inline: true  },
-          { name: '📊 Status',      value: '⏳ Pending — waiting for response',                inline: false },
+          { name: `${E.cart} Product`,    value: product,                                            inline: true  },
+          { name: `${E.e4} Proposed by`, value: `<@${proposerId}>`,                                 inline: true  },
+          { name: `${E.arrow} Proposed to`, value: targetId ? `<@${targetId}>` : 'Staff in ticket',   inline: true  },
+          { name: `${E.info} Status`,  value: `${E.warn} Pending — waiting for response`,   inline: false },
         )
         .setFooter({ text: 'Only the intended recipient can accept or reject' })
         .setTimestamp();
       const row = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId(`deal_accept_${dealId}`).setLabel('Accept Deal').setEmoji('✅').setStyle(ButtonStyle.Success),
-        new ButtonBuilder().setCustomId(`deal_reject_${dealId}`).setLabel('Reject Deal').setEmoji('❌').setStyle(ButtonStyle.Danger),
+        new ButtonBuilder().setCustomId(`deal_accept_${dealId}`).setLabel('Accept Deal').setEmoji({ id: '1518570328559845539', name: 'emoji_1' }).setStyle(ButtonStyle.Success),
+        new ButtonBuilder().setCustomId(`deal_reject_${dealId}`).setLabel('Reject Deal').setEmoji({ id: '1518570359262154793', name: 'emoji_2' }).setStyle(ButtonStyle.Danger),
       );
       const mention = targetId ? `<@${targetId}>` : '';
       const msg = await ctx.channel.send({ content: mention || undefined, embeds: [embed], components: [row] });
       activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() });
-      if (ctx.isSlash) return ctx.replyEphemeral({ content: '✅ Deal proposal sent!' });
+      if (ctx.isSlash) return ctx.replyEphemeral({ content: `${E.check} Deal proposal sent!` });
     },
   },
   setdeallog: {
@@ -852,7 +892,7 @@ const COMMANDS = {
       if (!url) return ctx.reply({ embeds: [err('Provide an image URL or attach an image.\nExample: `botavatar https://i.imgur.com/abc.png`')] });
       try {
         await client.user.setAvatar(url);
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('🖼️ Bot Avatar Updated').setDescription('The bot\'s avatar has been changed.').setThumbnail(client.user.displayAvatarURL()).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(`${E.bots} Bot Avatar Updated`).setDescription('The bot\'s avatar has been changed.').setThumbnail(client.user.displayAvatarURL()).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed to update avatar: ${e.message}`)] }); }
     },
   },
@@ -866,7 +906,7 @@ const COMMANDS = {
       if (name.length < 2 || name.length > 32) return ctx.reply({ embeds: [err('Username must be 2–32 characters.')] });
       try {
         await client.user.setUsername(name);
-        ctx.reply({ embeds: [ok('✏️ Bot Username Updated', `Username changed to **${name}**.\n⚠️ Discord allows only **2 username changes per hour**.`)] });
+        ctx.reply({ embeds: [ok(`${E.bots} Bot Username Updated`, `Username changed to **${name}**.\n${E.warn} Discord allows only **2 username changes per hour**.`)] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}`)] }); }
     },
   },
@@ -881,7 +921,7 @@ const COMMANDS = {
       if (!typeKey || !types[typeKey] === undefined || !text)
         return ctx.reply({ embeds: [info('botstatus Usage', '`botstatus <watching|playing|listening|competing> <text>`\n\nExample: `botstatus watching over the server`')] });
       client.user.setActivity(text, { type: types[typeKey] ?? 3 });
-      ctx.reply({ embeds: [ok('🎮 Bot Status Updated', `Now **${typeKey}** *${text}*`)] });
+      ctx.reply({ embeds: [ok(`${E.bots} Bot Status Updated`, `Now **${typeKey}** *${text}*`)] });
     },
   },
 
@@ -895,7 +935,7 @@ const COMMANDS = {
       if (!url) return ctx.reply({ embeds: [err('Provide an image URL.\nExample: `botbanner https://i.imgur.com/abc.png`')] });
       try {
         await client.user.setBanner(url);
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle('🖼️ Bot Banner Updated').setDescription('The bot\'s banner has been changed successfully.').setImage(url).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle(`${E.bots} Bot Banner Updated`).setDescription('The bot\'s banner has been changed successfully.').setImage(url).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Banner changing may require your bot to have boosted status on Discord.*`)] }); }
     },
   },
@@ -909,7 +949,7 @@ const COMMANDS = {
       if (bio.length > 190) return ctx.reply({ embeds: [err('Bio must be 190 characters or less.')] });
       try {
         await client.user.edit({ bio });
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle('📝 Bot Bio Updated').setDescription(`New bio:\n> ${bio}`).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle(`${E.bots} Bot Bio Updated`).setDescription(`New bio:\n> ${bio}`).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Bots may need verified bot status to set a bio.*`)] }); }
     },
   },
@@ -921,7 +961,7 @@ const COMMANDS = {
       if (!url) return ctx.reply({ embeds: [err('Provide an image URL or attach an image.\nExample: `serveravatar https://i.imgur.com/abc.png`')] });
       try {
         await ctx.guild.setIcon(url);
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('🖼️ Server Avatar Updated').setDescription('The server icon has been changed.').setThumbnail(ctx.guild.iconURL({ size: 256 })).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.bots} Server Avatar Updated`).setDescription('The server icon has been changed.').setThumbnail(ctx.guild.iconURL({ size: 256 })).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}`)] }); }
     },
   },
@@ -933,7 +973,7 @@ const COMMANDS = {
       if (!url) return ctx.reply({ embeds: [err('Provide an image URL.\nExample: `serverbanner https://i.imgur.com/abc.png`')] });
       try {
         await ctx.guild.setBanner(url);
-        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle('🏞️ Server Banner Updated').setDescription('The server banner has been changed.').setImage(url).setTimestamp()] });
+        ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.bots} Server Banner Updated`).setDescription('The server banner has been changed.').setImage(url).setTimestamp()] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Server banner requires the server to be at Boost Level 2 or higher.*`)] }); }
     },
   },
@@ -945,8 +985,8 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const list = cfg.autoResponds || [];
       if (sub === 'list') {
-        if (!list.length) return ctx.reply({ embeds: [info('🤖 Auto-Respond List', 'No triggers set.\nUse `autorespond add trigger | response` to add one.')] });
-        return ctx.reply({ embeds: [info('🤖 Auto-Respond Triggers', list.map((r, i) => `**${i + 1}.** \`${r.trigger}\` → ${r.response.slice(0, 60)}${r.response.length > 60 ? '…' : ''}`).join('\n'))] });
+        if (!list.length) return ctx.reply({ embeds: [info(`${E.bots} Auto-Respond List`, 'No triggers set.\nUse `autorespond add trigger | response` to add one.')] });
+        return ctx.reply({ embeds: [info(`${E.bots} Auto-Respond Triggers`, list.map((r, i) => `**${i + 1}.** \`${r.trigger}\` → ${r.response.slice(0, 60)}${r.response.length > 60 ? '…' : ''}`).join('\n'))] });
       }
       if (sub === 'add') {
         const full = args.slice(1).join(' ');
@@ -960,7 +1000,7 @@ const COMMANDS = {
         if (exists !== -1) list[exists].response = response;
         else list.push({ trigger, response });
         setGC(ctx.guild.id, 'autoResponds', list);
-        return ctx.reply({ embeds: [ok('✅ Auto-Respond Added', `When someone says **"${trigger}"** I will reply:\n> ${response}`)] });
+        return ctx.reply({ embeds: [ok('Auto-Respond Added', `When someone says **"${trigger}"** I will reply:\n> ${response}`)] });
       }
       if (sub === 'remove') {
         const trigger = args.slice(1).join(' ').trim().toLowerCase();
@@ -968,9 +1008,9 @@ const COMMANDS = {
         const newList = list.filter(r => r.trigger !== trigger);
         if (newList.length === before) return ctx.reply({ embeds: [err(`No trigger found for \`${trigger}\`.`)] });
         setGC(ctx.guild.id, 'autoResponds', newList);
-        return ctx.reply({ embeds: [ok('🗑️ Trigger Removed', `Auto-respond for \`${trigger}\` deleted.`)] });
+        return ctx.reply({ embeds: [ok('Trigger Removed', `Auto-respond for \`${trigger}\` deleted.`)] });
       }
-      ctx.reply({ embeds: [info('🤖 Auto-Respond', '`autorespond add <trigger> | <response>`\n`autorespond remove <trigger>`\n`autorespond list`')] });
+      ctx.reply({ embeds: [info(`${E.bots} Auto-Respond`, '`autorespond add <trigger> | <response>`\n`autorespond remove <trigger>`\n`autorespond list`')] });
     },
   },
   addcmd: {
@@ -986,7 +1026,7 @@ const COMMANDS = {
       if (Object.keys(cmds).length >= 50) return ctx.reply({ embeds: [err('Maximum 50 custom commands per server.')] });
       cmds[name] = response;
       setGC(ctx.guild.id, 'customCmds', cmds);
-      ctx.reply({ embeds: [ok('✅ Custom Command Created', `\`${getPrefix(ctx.guild.id)}${name}\` will now reply:\n> ${response.slice(0, 200)}`)] });
+      ctx.reply({ embeds: [ok('Custom Command Created', `\`${getPrefix(ctx.guild.id)}${name}\` will now reply:\n> ${response.slice(0, 200)}`)] });
     },
   },
   delcmd: {
@@ -1000,7 +1040,7 @@ const COMMANDS = {
       if (!cmds[name]) return ctx.reply({ embeds: [err(`No custom command named \`${name}\`.`)] });
       delete cmds[name];
       setGC(ctx.guild.id, 'customCmds', cmds);
-      ctx.reply({ embeds: [ok('🗑️ Custom Command Deleted', `\`${name}\` has been removed.`)] });
+      ctx.reply({ embeds: [ok('Custom Command Deleted', `\`${name}\` has been removed.`)] });
     },
   },
   cmds: {
@@ -1009,8 +1049,8 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const cmds = cfg.customCmds || {};
       const keys = Object.keys(cmds);
-      if (!keys.length) return ctx.reply({ embeds: [info('📋 Custom Commands', 'No custom commands set.\nAdmins can add one with `addcmd <name> <response>`.')] });
-      ctx.reply({ embeds: [info(`📋 Custom Commands (${keys.length})`, keys.map(k => `\`${getPrefix(ctx.guild.id)}${k}\``).join(' • '))] });
+      if (!keys.length) return ctx.reply({ embeds: [info(`${E.rules} Custom Commands`, 'No custom commands set.\nAdmins can add one with `addcmd <name> <response>`.')] });
+      ctx.reply({ embeds: [info(`${E.rules} Custom Commands (${keys.length})`, keys.map(k => `\`${getPrefix(ctx.guild.id)}${k}\``).join(' • '))] });
     },
   },
   reboot: {
@@ -1018,7 +1058,7 @@ const COMMANDS = {
     async run(ctx) {
       if (!isAdmin(ctx.member) && ctx.author.id !== OWNER_ID)
         return ctx.reply({ embeds: [err('You need Administrator permissions to reboot the bot.')] });
-      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('🔄 Rebooting…').setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle(`${E.warn} Rebooting…`).setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
       setTimeout(() => process.exit(0), 1500);
     },
   },
@@ -1028,12 +1068,12 @@ const COMMANDS = {
     async run(ctx) {
       const scores = [...vouches.entries()].map(([id, l]) => ({ id, n: l.length })).filter(e => e.n > 0).sort((a, b) => b.n - a.n).slice(0, 10);
       if (!scores.length) return ctx.reply({ embeds: [info('Vouch Leaderboard', 'No vouches yet.')] });
-      const medals = ['🥇', '🥈', '🥉'];
+      const medals = [E.e26, E.e27, E.e28];
       const lines  = await Promise.all(scores.map(async (e, i) => {
         const u = await client.users.fetch(e.id).catch(() => null);
         return `${medals[i] || `**${i + 1}.**`} ${u ? u.tag : e.id} — **${e.n}** vouch(es)`;
       }));
-      ctx.reply({ embeds: [info('⭐ Vouch Leaderboard', lines.join('\n'))] });
+      ctx.reply({ embeds: [info(`${E.stock} Vouch Leaderboard`, lines.join('\n'))] });
     },
   },
   invites: {
@@ -1046,7 +1086,7 @@ const COMMANDS = {
       const count  = [...gJoins.values()].filter(j => j.inviterId === checkId).length;
       ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
-        .setAuthor({ name: `📨 Invites — ${checkTag}`, iconURL: checkAvatar })
+        .setAuthor({ name: `${E.e4} Invites — ${checkTag}`, iconURL: checkAvatar })
         .setDescription(`**${checkTag}** has invited **${count}** member${count !== 1 ? 's' : ''} this session.`)
         .setFooter({ text: 'Invite counts reset when the bot restarts' })
         .setTimestamp()] });
@@ -1060,12 +1100,12 @@ const COMMANDS = {
       const tally = new Map();
       for (const { inviterId } of gJoins.values()) tally.set(inviterId, (tally.get(inviterId) || 0) + 1);
       const sorted = [...tally.entries()].sort((a, b) => b[1] - a[1]).slice(0, 10);
-      const medals = ['🥇', '🥈', '🥉'];
+      const medals = [E.e26, E.e27, E.e28];
       const lines  = await Promise.all(sorted.map(async ([id, n], i) => {
         const u = await client.users.fetch(id).catch(() => null);
         return `${medals[i] || `**${i + 1}.**`} ${u ? u.tag : id} — **${n}** invite${n !== 1 ? 's' : ''}`;
       }));
-      ctx.reply({ embeds: [info('📨 Invite Leaderboard', lines.join('\n') + '\n\n*Resets on bot restart*')] });
+      ctx.reply({ embeds: [info(`${E.e4} Invite Leaderboard`, lines.join('\n') + '\n\n*Resets on bot restart*')] });
     },
   },
 
@@ -1108,14 +1148,14 @@ const COMMANDS = {
       const afk  = afkUsers.get(t.id);
       const vc   = (vouches.get(t.id) || []).length;
       const wc   = (warnings.get(t.id) || []).length;
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`👤 ${t.user.tag}`).setThumbnail(t.user.displayAvatarURL({ size: 256 })).addFields(
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.e4} ${t.user.tag}`).setThumbnail(t.user.displayAvatarURL({ size: 256 })).addFields(
         { name: 'User ID',        value: t.id,                                                         inline: true  },
         { name: 'Nickname',       value: t.nickname || 'None',                                         inline: true  },
         { name: 'AFK',            value: afk ? `Yes — ${afk.reason}` : 'No',                          inline: true  },
         { name: 'Account Created',value: `<t:${Math.floor(t.user.createdTimestamp / 1000)}:R>`,       inline: true  },
         { name: 'Joined Server',  value: `<t:${Math.floor(t.joinedTimestamp / 1000)}:R>`,             inline: true  },
-        { name: '⭐ Vouches',     value: `${vc}`,                                                      inline: true  },
-        { name: '⚠️ Warnings',   value: `${wc}`,                                                      inline: true  },
+        { name: `${E.stock} Vouches`,  value: `${vc}`,                                                      inline: true  },
+        { name: `${E.warn} Warnings`,  value: `${wc}`,                                                      inline: true  },
         { name: 'Roles',          value: t.roles.cache.filter(r => r.id !== ctx.guild.id).map(r => r.toString()).join(', ') || 'None' },
       ).setTimestamp()] });
     },
@@ -1124,7 +1164,7 @@ const COMMANDS = {
     cat: 'utility', usage: 'serverinfo', desc: 'View server information',
     async run(ctx) {
       const g = ctx.guild; const cfg = gc(g.id);
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`🏠 ${g.name}`).setThumbnail(g.iconURL({ size: 256 })).addFields(
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.setting} ${g.name}`).setThumbnail(g.iconURL({ size: 256 })).addFields(
         { name: 'Server ID', value: g.id,                                             inline: true },
         { name: 'Owner',     value: `<@${g.ownerId}>`,                                inline: true },
         { name: 'Members',   value: `${g.memberCount}`,                               inline: true },
@@ -1139,16 +1179,16 @@ const COMMANDS = {
     cat: 'utility', usage: 'avatar [@user]', desc: "Get a user's avatar",
     async run(ctx, args, target) {
       const u = (target ? target.user : null) || ctx.author;
-      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`🖼️ ${u.tag}`).setImage(u.displayAvatarURL({ size: 1024 })).setTimestamp()] });
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.bots} ${u.tag}`).setImage(u.displayAvatarURL({ size: 1024 })).setTimestamp()] });
     },
   },
   ping: {
     cat: 'utility', usage: 'ping', desc: 'Check bot latency',
     async run(ctx) {
       const start = Date.now();
-      const msg   = await ctx.reply({ embeds: [info('🏓 Pinging…', 'Measuring…')] });
+      const msg   = await ctx.reply({ embeds: [info(`${E.wifi} Pinging…`, 'Measuring…')] });
       const el    = Date.now() - start;
-      const edit  = info('🏓 Pong!', `**Bot:** ${el}ms\n**API:** ${client.ws.ping}ms`);
+      const edit  = info(`${E.wifi} Pong!`, `**Bot:** ${el}ms\n**API:** ${client.ws.ping}ms`);
       if (msg && msg.edit) msg.edit({ embeds: [edit] });
     },
   },
@@ -1161,11 +1201,11 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const note = cfg.ticketNote || 'Click below to open a support ticket.\nOur staff team will assist you as soon as possible.';
       const row  = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_create').setLabel('Open Ticket').setEmoji('🎫').setStyle(ButtonStyle.Primary),
+        new ButtonBuilder().setCustomId('ticket_create').setLabel('Open Ticket').setEmoji({ id: '1518572054981509152', name: 'pb_y_chat', animated: true }).setStyle(ButtonStyle.Primary),
       );
       ctx.channel.send({ embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle('🎫 Support Tickets')
+        .setTitle(`${E.hash} Support Tickets`)
         .setDescription(note)
         .setFooter({ text: ctx.guild.name, iconURL: ctx.guild.iconURL() })
         .setTimestamp()], components: [row] });
@@ -1208,7 +1248,7 @@ const COMMANDS = {
 
       if (sub === 'on') {
         setGC(ctx.guild.id, 'antinuke', true);
-        return ctx.reply({ embeds: [ok('Anti-Nuke Enabled', '🛡️ Anti-nuke protection is now **ON**.\nAny user who mass-bans, mass-kicks, mass-deletes channels/roles, or creates webhooks beyond the threshold will be instantly banned and stripped of roles.')] });
+        return ctx.reply({ embeds: [ok('Anti-Nuke Enabled', `${E.antinuke} Anti-nuke protection is now **ON**.\nAny user who mass-bans, mass-kicks, mass-deletes channels/roles, or creates webhooks beyond the threshold will be instantly banned and stripped of roles.`)] });
       }
 
       if (sub === 'off') {
@@ -1260,18 +1300,18 @@ const COMMANDS = {
       const wlUsers = await Promise.all(wl.map(id => client.users.fetch(id).catch(() => id)));
       return ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(cfg.antinuke ? 0x57f287 : 0xed4245)
-        .setTitle(`🛡️ Anti-Nuke — ${cfg.antinuke ? '✅ Enabled' : '❌ Disabled'}`)
+        .setTitle(`${E.secure} Anti-Nuke — ${cfg.antinuke ? E.check + ' Enabled' : E.deny + ' Disabled'}`)
         .setDescription('Monitors and auto-bans users who attempt to nuke (destroy) the server.')
         .addFields(
-          { name: '⚡ Thresholds (per 10s)', value: [
+          { name: `${E.warn} Thresholds (per 10s)`, value: [
             `**Ban:** ${thr.ban} actions`,
             `**Kick:** ${thr.kick} actions`,
             `**Channel Delete:** ${thr.chDel} actions`,
             `**Role Delete:** ${thr.roleDel} actions`,
             `**Webhook Create:** ${thr.webhook} actions`,
           ].join('\n'), inline: true },
-          { name: '🔒 Monitored Events', value: '• Mass ban\n• Mass kick\n• Mass channel delete\n• Mass role delete\n• Webhook creation\n• Bot additions', inline: true },
-          { name: `✅ Whitelist (${wl.length})`, value: wlUsers.length ? wlUsers.map(u => typeof u === 'string' ? `\`${u}\`` : u.tag).join(', ') : 'None' },
+          { name: `${E.secure} Monitored Events`, value: '• Mass ban\n• Mass kick\n• Mass channel delete\n• Mass role delete\n• Webhook creation\n• Bot additions', inline: true },
+          { name: `${E.check} Whitelist (${wl.length})`, value: wlUsers.length ? wlUsers.map(u => typeof u === 'string' ? `\`${u}\`` : u.tag).join(', ') : 'None' },
         )
         .setFooter({ text: 'Use: antinuke on | off | whitelist @user | threshold ban 2' })
         .setTimestamp()
@@ -1282,27 +1322,27 @@ const COMMANDS = {
 
 // ─── Help menu ────────────────────────────────────────────────────────────────
 const CATS = {
-  admin:      { emoji: '⚙️', label: 'Admin',      desc: 'Setup & configuration',              color: 0xeb459e },
-  moderation: { emoji: '🔨', label: 'Moderation', desc: 'Ban, kick, mute, warn & more',       color: 0xed4245 },
-  antinuke:   { emoji: '🛡️', label: 'Anti-Nuke',  desc: 'Server nuke protection',             color: 0xff4444 },
-  utility:    { emoji: '🛠️', label: 'Utility',    desc: 'Say, embed, userinfo, ping',         color: 0x5865f2 },
-  tickets:    { emoji: '🎫', label: 'Tickets',    desc: 'Ticket panel, close, transcript',    color: 0xfee75c },
-  social:     { emoji: '⭐', label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
-  unique:     { emoji: '🌟', label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
-  botmgmt:    { emoji: '🤖', label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
-  general:    { emoji: '📋', label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
+  admin:      { emoji: E.setting, label: 'Admin',      desc: 'Setup & configuration',              color: 0xeb459e },
+  moderation: { emoji: E.mod,     label: 'Moderation', desc: 'Ban, kick, mute, warn & more',       color: 0xed4245 },
+  antinuke:   { emoji: E.secure,  label: 'Anti-Nuke',  desc: 'Server nuke protection',             color: 0xff4444 },
+  utility:    { emoji: E.sinfo,   label: 'Utility',    desc: 'Say, embed, userinfo, ping',         color: 0x5865f2 },
+  tickets:    { emoji: E.hash,    label: 'Tickets',    desc: 'Ticket panel, close, transcript',    color: 0xfee75c },
+  social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
+  unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
+  botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
+  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
 };
 
 async function sendHelpMenu(ctx) {
   const prefix = getPrefix(ctx.guild.id);
   const embed  = new EmbedBuilder()
-    .setColor(0x5865f2).setTitle('📚 Ceas Bot — Help')
+    .setColor(0x5865f2).setTitle(`${E.rules} Ceas Bot — Help`)
     .setDescription(
       `**Prefix:** \`${prefix}\` or \`${prefix.toUpperCase()}\`  |  No-prefix: \`ceas <cmd>\`\n` +
-      `↩️ **Reply trigger** — reply to any message with \`ban\`, \`kick\`, \`mute\`, etc.\n` +
-      `🔓 **True no-prefix** — enable with \`${prefix}setnoprefix on\` so mods can type \`ban @user\` directly\n` +
-      `🎭 **Role trigger** — reply to a message with just a role name to give/remove it\n\n` +
-      `⚙️ First time? Run \`${prefix}config\` to view settings!\n\nSelect a category ↓`
+      `${E.arrow} **Reply trigger** — reply to any message with \`ban\`, \`kick\`, \`mute\`, etc.\n` +
+      `${E.check} **True no-prefix** — enable with \`${prefix}setnoprefix on\` so mods can type \`ban @user\` directly\n` +
+      `${E.e3b} **Role trigger** — reply to a message with just a role name to give/remove it\n\n` +
+      `${E.setting} First time? Run \`${prefix}config\` to view settings!\n\nSelect a category ${E.arrow}`
     )
     .addFields(Object.values(CATS).map(v => ({ name: `${v.emoji} ${v.label}`, value: v.desc, inline: true })))
     .setFooter({ text: `${Object.keys(COMMANDS).length} commands | All also available as /slash commands` })
@@ -1316,7 +1356,7 @@ async function sendHelpMenu(ctx) {
 
 function buildCatEmbed(cat, guildId) {
   const prefix = getPrefix(guildId);
-  const c      = CATS[cat] || { emoji: '📋', label: cat, color: 0x5865f2 };
+  const c      = CATS[cat] || { emoji: E.rules, label: cat, color: 0x5865f2 };
   const cmds   = Object.entries(COMMANDS).filter(([, v]) => v.cat === cat);
   return new EmbedBuilder()
     .setColor(c.color).setTitle(`${c.emoji} ${c.label} Commands`)
@@ -1561,7 +1601,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
     if (interaction.customId === 'ticket_create') {
       await interaction.deferReply({ ephemeral: true });
       const r = await createTicket(interaction.guild, interaction.member);
-      return interaction.editReply({ content: r.existing ? `⚠️ You already have a ticket: ${r.channel}` : `✅ Ticket created: ${r.channel}` });
+      return interaction.editReply({ content: r.existing ? `${E.warn} You already have a ticket: ${r.channel}` : `${E.check} Ticket created: ${r.channel}` });
     }
     if (interaction.customId === 'ticket_close') {
       if (!openTickets.has(interaction.channel.id)) return interaction.reply({ embeds: [err('Not a ticket channel.')], ephemeral: true });
@@ -1593,16 +1633,16 @@ client.on(Events.InteractionCreate, async (interaction) => {
       deal.respondedAt = Date.now();
 
       const color  = isAccept ? 0x57f287 : 0xed4245;
-      const status = isAccept ? '✅ Accepted' : '❌ Rejected';
+      const status = isAccept ? `${E.check} Accepted` : `${E.deny} Rejected`;
 
       const updatedEmbed = new EmbedBuilder()
         .setColor(color)
-        .setTitle('🤝 Deal Proposal')
+        .setTitle(`${E.cart} Deal Proposal`)
         .addFields(
-          { name: '📦 Product',      value: deal.product,                      inline: true  },
-          { name: '👤 Proposed by',  value: `<@${deal.proposerId}>`,           inline: true  },
-          { name: '👤 Responded by', value: `<@${interaction.user.id}>`,       inline: true  },
-          { name: '📊 Status',       value: status,                            inline: false },
+          { name: `${E.cart} Product`,     value: deal.product,                      inline: true  },
+          { name: `${E.e4} Proposed by`,  value: `<@${deal.proposerId}>`,           inline: true  },
+          { name: `${E.e4} Responded by`, value: `<@${interaction.user.id}>`,       inline: true  },
+          { name: `${E.info} Status`,    value: status,                            inline: false },
         )
         .setFooter({ text: `Decision made by ${interaction.user.tag}` })
         .setTimestamp();
@@ -1617,14 +1657,14 @@ client.on(Events.InteractionCreate, async (interaction) => {
         if (logCh) {
           logCh.send({ embeds: [new EmbedBuilder()
             .setColor(color)
-            .setTitle(`🤝 Deal ${isAccept ? 'Accepted' : 'Rejected'}`)
+            .setTitle(`${E.cart} Deal ${isAccept ? 'Accepted' : 'Rejected'}`)
             .addFields(
-              { name: '📦 Product',      value: deal.product,                              inline: true  },
-              { name: '🏷️ Ticket',       value: `<#${deal.channelId}>`,                  inline: true  },
-              { name: '👤 Proposer',     value: `<@${deal.proposerId}>`,                  inline: true  },
-              { name: '👤 Responder',    value: `<@${interaction.user.id}>`,              inline: true  },
-              { name: '📊 Decision',     value: status,                                   inline: true  },
-              { name: '⏱️ Proposed',     value: `<t:${Math.floor(deal.at / 1000)}:R>`,   inline: true  },
+              { name: `${E.cart} Product`,    value: deal.product,                              inline: true  },
+              { name: `${E.hash} Ticket`,     value: `<#${deal.channelId}>`,                  inline: true  },
+              { name: `${E.e4} Proposer`,    value: `<@${deal.proposerId}>`,                  inline: true  },
+              { name: `${E.e4} Responder`,   value: `<@${interaction.user.id}>`,              inline: true  },
+              { name: `${E.info} Decision`,   value: status,                                   inline: true  },
+              { name: `${E.arrow} Proposed`, value: `<t:${Math.floor(deal.at / 1000)}:R>`,   inline: true  },
             )
             .setFooter({ text: `Guild: ${interaction.guild.name}` })
             .setTimestamp()
@@ -2008,7 +2048,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (!cmdName) return;
   }
 
-  if (!cmdName) return message.reply({ embeds: [info('👋 Hey!', `Use \`${PREFIX}help\` or \`ceas help\`\nFirst time? Run \`${PREFIX}setup\` to configure!`)] });
+  if (!cmdName) return message.reply({ embeds: [info(`${E.chat} Hey!`, `Use \`${PREFIX}help\` or \`ceas help\`\nFirst time? Run \`${PREFIX}setup\` to configure!`)] });
 
   const command = COMMANDS[cmdName];
   if (!command) return message.reply({ embeds: [err(`Unknown command \`${cmdName}\`\nUse \`${PREFIX}help\` for the full list.`)] });
@@ -2166,11 +2206,11 @@ client.on(Events.GuildMemberAdd, async (member) => {
   if (!executorId || executorId === client.user.id) return;
   if (isNukeWhitelisted(member.guild, executorId)) {
     // Whitelisted — just log
-    sendLog(member.guild, info('🤖 Bot Added', `Bot **${member.user.tag}** added by <@${executorId}> (whitelisted)`));
+    sendLog(member.guild, info(`${E.bots} Bot Added`, `Bot **${member.user.tag}** added by <@${executorId}> (whitelisted)`));
     return;
   }
   // Non-whitelisted user added a bot → warn in log
-  sendLog(member.guild, new EmbedBuilder().setColor(0xfee75c).setTitle('⚠️ Unwhitelisted Bot Added')
+  sendLog(member.guild, new EmbedBuilder().setColor(0xfee75c).setTitle(`${E.warn} Unwhitelisted Bot Added`)
     .setDescription(`Bot **${member.user.tag}** was added by <@${executorId}>.\nIf this looks suspicious, run \`antinuke whitelist\` for trusted admins.`)
     .setTimestamp());
 });
@@ -2218,7 +2258,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
   if (!ch) return;
 
   // Build description — use custom message if set, with variable substitution
-  const defaultMsg = `Hey ${member}!\nYou are member **#${member.guild.memberCount}**.\nPlease read the rules and enjoy your stay! 🎉`;
+  const defaultMsg = `Hey ${member}!\nYou are member **#${member.guild.memberCount}**.\nPlease read the rules and enjoy your stay! ${E.gift}`;
   const description = cfg.welcomeMsg
     ? cfg.welcomeMsg
         .replace(/\{user\}/gi,   member.toString())
@@ -2229,12 +2269,12 @@ client.on(Events.GuildMemberAdd, async (member) => {
 
   const emb = new EmbedBuilder()
     .setColor(0x57f287)
-    .setTitle(`👋 Welcome to ${member.guild.name}!`)
+    .setTitle(`${E.gift} Welcome to ${member.guild.name}!`)
     .setDescription(description)
     .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
     .addFields(
-      { name: '📅 Account Created', value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
-      { name: '👥 Member Count',    value: `${member.guild.memberCount}`,                              inline: true },
+      { name: `${E.info} Account Created`, value: `<t:${Math.floor(member.user.createdTimestamp / 1000)}:R>`, inline: true },
+      { name: `${E.stock} Member Count`,   value: `${member.guild.memberCount}`,                              inline: true },
     )
     .setFooter({ text: member.guild.name, iconURL: member.guild.iconURL() })
     .setTimestamp();
@@ -2260,12 +2300,12 @@ client.on(Events.GuildMemberRemove, async (member) => {
 
   ch.send({ embeds: [new EmbedBuilder()
     .setColor(0xed4245)
-    .setTitle(`👋 Goodbye!`)
+    .setTitle(`${E.deny} Goodbye!`)
     .setDescription(description)
     .setThumbnail(member.user.displayAvatarURL({ size: 256 }))
     .addFields(
-      { name: '📅 Was Here Since', value: member.joinedAt ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` : 'Unknown', inline: true },
-      { name: '👥 Members Left',   value: `${member.guild.memberCount}`, inline: true },
+      { name: `${E.info} Was Here Since`, value: member.joinedAt ? `<t:${Math.floor(member.joinedTimestamp / 1000)}:R>` : 'Unknown', inline: true },
+      { name: `${E.stock} Members Left`,  value: `${member.guild.memberCount}`, inline: true },
     )
     .setFooter({ text: member.guild.name, iconURL: member.guild.iconURL() })
     .setTimestamp()] });
