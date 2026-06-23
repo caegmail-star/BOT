@@ -150,7 +150,7 @@ function modEmbed(action, mod, target, reason, fields = []) {
   const icon   = icons[action.toLowerCase()] ?? E.warn;
   return new EmbedBuilder()
     .setColor(color)
-    .setAuthor({ name: `${icon} ${action}`, iconURL: target.user.displayAvatarURL() })
+    .setAuthor({ name: `${action}`, iconURL: target.user.displayAvatarURL() })
     .setDescription(`**User:** ${target.user.tag}\n**ID:** \`${target.id}\`\n**Reason:** ${reason}`)
     .setThumbnail(target.user.displayAvatarURL({ size: 256 }))
     .addFields(fields.map(([n, v]) => ({ name: n, value: v, inline: true })))
@@ -232,7 +232,7 @@ function ctxFromInteraction(interaction) {
 async function setAfk(member, reason) {
   const original = member.nickname || member.user.username;
   afkUsers.set(member.id, { reason, since: Date.now(), originalNick: original });
-  try { await member.setNickname(`[AFK] ${original}`.slice(0, 32)); } catch {}
+  try { await member.setNickname(`[A F K] ${original}`.slice(0, 32)); } catch {}
 }
 async function removeAfk(member) {
   const d = afkUsers.get(member.id);
@@ -590,7 +590,7 @@ const COMMANDS = {
         const user   = await client.users.fetch(userId);
         const reason = args.slice(1).join(' ') || 'No reason provided';
         await ctx.guild.bans.remove(userId, reason);
-        const e = new EmbedBuilder().setColor(0x2ecc71).setAuthor({ name: `${E.check} Unbanned`, iconURL: user.displayAvatarURL() })
+        const e = new EmbedBuilder().setColor(0x2ecc71).setAuthor({ name: `Unbanned`, iconURL: user.displayAvatarURL() })
           .setDescription(`**User:** ${user.tag}\n**ID:** \`${user.id}\`\n**Reason:** ${reason}`)
           .setThumbnail(user.displayAvatarURL({ size: 256 }))
           .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp();
@@ -677,7 +677,7 @@ const COMMANDS = {
         .setDescription(`${E.check} No warnings on record for this member.`)
         .setThumbnail(target.user.displayAvatarURL({ size: 256 })).setTimestamp()] });
       ctx.reply({ embeds: [new EmbedBuilder().setColor(0xfee75c)
-        .setAuthor({ name: `${E.warn} Warnings — ${target.user.tag} (${list.length})`, iconURL: target.user.displayAvatarURL() })
+        .setAuthor({ name: `Warnings — ${target.user.tag} (${list.length})`, iconURL: target.user.displayAvatarURL() })
         .setDescription(list.map((w, i) => `\`${i + 1}.\` **${w.reason}**\n↳ *${w.moderator}* • <t:${Math.floor(new Date(w.date).getTime() / 1000)}:R>`).join('\n\n'))
         .setThumbnail(target.user.displayAvatarURL({ size: 256 })).setTimestamp()] });
     },
@@ -783,7 +783,7 @@ const COMMANDS = {
 
   // ── AFK ──────────────────────────────────────────────────────────────────────
   afk: {
-    cat: 'general', usage: 'afk [reason]', desc: 'Set/remove your AFK — nick becomes [AFK] Name',
+    cat: 'general', usage: 'afk [reason]', desc: 'Set/remove your AFK — nick becomes [A F K] Name',
     async run(ctx, args) {
       if (afkUsers.has(ctx.author.id)) {
         await removeAfk(ctx.member);
@@ -814,7 +814,7 @@ const COMMANDS = {
       list.push({ fromId: ctx.author.id, fromTag: ctx.author.tag, comment, date: new Date().toISOString() });
       const msg = await ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x57f287)
-        .setAuthor({ name: `${E.stock} Vouched!`, iconURL: target.user.displayAvatarURL() })
+        .setAuthor({ name: `Vouched!`, iconURL: target.user.displayAvatarURL() })
         .setDescription(`**${ctx.author.tag}** vouched for **${target.user.tag}**.\n${E.chat} *"${comment}"*`)
         .addFields({ name: 'Total Vouches', value: `${list.length}`, inline: true })
         .setThumbnail(target.user.displayAvatarURL({ size: 128 }))
@@ -1097,7 +1097,7 @@ const COMMANDS = {
       const count  = [...gJoins.values()].filter(j => j.inviterId === checkId).length;
       ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x5865f2)
-        .setAuthor({ name: `${E.e4} Invites — ${checkTag}`, iconURL: checkAvatar })
+        .setAuthor({ name: `Invites — ${checkTag}`, iconURL: checkAvatar })
         .setDescription(`**${checkTag}** has invited **${count}** member${count !== 1 ? 's' : ''} this session.`)
         .setFooter({ text: 'Invite counts reset when the bot restarts' })
         .setTimestamp()] });
