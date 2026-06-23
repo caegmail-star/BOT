@@ -88,9 +88,17 @@ async function punishNuker(guild, userId, reason) {
 }
 
 // ─── Custom Emoji Constants ───────────────────────────────────────────────────
+// Helper: parse <:name:id> / <a:name:id> strings into the object Discord.js
+// components (buttons, select-menu options) require for custom emoji fields.
+function parseEmoji(str) {
+  const m = str.match(/<(a?):([^:]+):(\d+)>/);
+  if (m) return { animated: m[1] === 'a', name: m[2], id: m[3] };
+  return { name: str }; // unicode fallback
+}
+
 const E = {
-  check:   '<:emoji_1:1518570328559845539>',
-  deny:    '<:emoji_2:1518570359262154793>',
+  check:   '<:emoji_26:1518572775470530641>',  // success
+  deny:    '<:emoji_3:1518572085746597970>',   // error
   warn:    '<a:1000003084:1518572069896323174>',
   info:    '<:info:1518572049042378886>',
   arrow:   '<a:arrow_arrow:1518572000413487117>',
@@ -1351,7 +1359,7 @@ async function sendHelpMenu(ctx) {
   if (bannerURL) embed.setImage(bannerURL);
 
   const menu = new StringSelectMenuBuilder().setCustomId('help_menu').setPlaceholder('📂 Select a category…')
-    .addOptions(Object.entries(CATS).map(([key, v]) => ({ label: v.label, value: key, description: v.desc, emoji: v.emoji })));
+    .addOptions(Object.entries(CATS).map(([key, v]) => ({ label: v.label, value: key, description: v.desc, emoji: parseEmoji(v.emoji) })));
 
   ctx.reply({ embeds: [embed], components: [new ActionRowBuilder().addComponents(menu)] });
 }
