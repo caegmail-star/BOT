@@ -546,7 +546,7 @@ const COMMANDS = {
         return ctx.reply({ embeds: [ok('No-Prefix Mode Enabled',
           'Moderators can now use commands with no prefix at all.\n\n' +
           '**Examples:** `ban @user spam` • `kick @user` • `mute @user 10 caps`\n\n' +
-          E.warn + ' Only members with the Mod or Admin role can trigger commands this way.'] });
+          E.warn + ' Only members with the Mod or Admin role can trigger commands this way.')] });
       }
       if (toggle === 'off') {
         setGC(ctx.guild.id, 'noprefix', false);
