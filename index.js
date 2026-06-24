@@ -39,7 +39,6 @@ const activeDeals = new Map(); // dealId    → deal object
 const inviteCache = new Map(); // session only
 const inviteJoins = new Map(); // session only
 const afkUsers    = new Map(); // session only
-const snipeStore  = new Map(); // session only
 
 // Save helpers — update in-memory Map then fire-and-forget to MongoDB
 
@@ -135,6 +134,7 @@ const E = {
   e26: '<:emoji_26:1518572775470530641>',
   e27: '<:emoji_27:1518573391244951572>',
   e28: '<:emoji_28:1518576868486283274>',
+  clowd: '<:clowd:1509545456869310584>',
 };
 
 // ─── Embed helpers ────────────────────────────────────────────────────────────
@@ -1340,54 +1340,6 @@ const COMMANDS = {
     },
   },
 
-  // ── Snipe ──────────────────────────────────────────────────────────────────
-  snipe: {
-    cat: 'general', usage: 'snipe', desc: 'Show the last deleted message in this channel',
-    async run(ctx) {
-      const d = snipeStore.get(ctx.channel.id);
-      if (!d) return ctx.reply({ embeds: [err('Nothing to snipe — no recently deleted message found.')] });
-      const embed = new EmbedBuilder()
-        .setColor(0xed4245)
-        .setAuthor({ name: d.author, iconURL: d.avatarURL })
-        .setDescription(d.content || '*[no text content]*')
-        .setFooter({ text: 'Message deleted' })
-        .setTimestamp(d.timestamp);
-      if (d.imageURL) embed.setImage(d.imageURL);
-      ctx.reply({ embeds: [embed] });
-    },
-  },
-
-  // ── Poll ───────────────────────────────────────────────────────────────────
-  poll: {
-    cat: 'general', usage: 'poll <question> [| Option1 | Option2 ...]', desc: 'Create a poll — yes/no or up to 5 custom options',
-    async run(ctx, args) {
-      const full     = args.join(' ');
-      const parts    = full.split('|').map(s => s.trim()).filter(Boolean);
-      const question = parts[0];
-      if (!question) return ctx.reply({ embeds: [err('Provide a question. Example: `poll Is this bot cool?`')] });
-      const options  = parts.slice(1);
-      const emojis   = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣'];
-      const desc     = options.length
-        ? `**${question}**\n\n${options.map((o, i) => `${emojis[i]} ${o}`).join('\n')}`
-        : `**${question}**\n\n✅ Yes   ❌ No`;
-      const embed = new EmbedBuilder()
-        .setColor(0x5865f2)
-        .setTitle('📊 Poll')
-        .setDescription(desc)
-        .setFooter({ text: `Poll by ${ctx.author.tag}` })
-        .setTimestamp();
-      const sent = await ctx.reply({ embeds: [embed] });
-      if (sent) {
-        if (options.length) {
-          for (let i = 0; i < Math.min(options.length, 5); i++) await sent.react(emojis[i]).catch(() => {});
-        } else {
-          await sent.react('✅').catch(() => {});
-          await sent.react('❌').catch(() => {});
-        }
-      }
-    },
-  },
-
   // ── Remind ─────────────────────────────────────────────────────────────────
   remind: {
     cat: 'general', usage: 'remind <time> <message>  (e.g. remind 30m check the oven)', desc: 'Set a reminder — bot DMs you after the given time',
@@ -1395,19 +1347,19 @@ const COMMANDS = {
       const raw = args[0];
       if (!raw) return ctx.reply({ embeds: [err('Usage: `remind 10m grab lunch`\nUnits: s, m, h')] });
       const match = raw.match(/^(\d+)([smh])$/i);
-      if (!match) return ctx.reply({ embeds: [err('❌ Invalid time format. Use: `30s`, `10m`, `2h`')] });
+      if (!match) return ctx.reply({ embeds: [err(' Invalid time format. Use: `30s`, `10m`, `2h`')] });
       const val  = parseInt(match[1]);
       const unit = match[2].toLowerCase();
       const ms   = unit === 's' ? val * 1000 : unit === 'm' ? val * 60_000 : val * 3_600_000;
-      if (ms > 24 * 3_600_000) return ctx.reply({ embeds: [err('❌ Maximum reminder time is 24 hours.')] });
+      if (ms > 24 * 3_600_000) return ctx.reply({ embeds: [err(' Maximum reminder time is 24 hours.')] });
       const note = args.slice(1).join(' ') || 'Your reminder is up!';
-      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('⏰ Reminder Set').setDescription(`I'll DM you in **${raw}**.\n**Note:** ${note}`).setTimestamp()] });
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('<:clowd:1509545456869310584> Reminder Set').setDescription(`I'll DM you in **${raw}**.\n**Note:** ${note}`).setTimestamp()] });
       const userId   = ctx.author.id;
       const guildName = ctx.guild.name;
       setTimeout(async () => {
         try {
           const user = await client.users.fetch(userId);
-          await user.send({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('⏰ Reminder').setDescription(`**${note}**\n\n*Set ${raw} ago in ${guildName}*`).setTimestamp()] });
+          await user.send({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('<:clowd:1509545456869310584> Reminder').setDescription(`**${note}**\n\n*Set ${raw} ago in ${guildName}*`).setTimestamp()] });
         } catch { /* DMs closed */ }
       }, ms);
     },
@@ -1425,7 +1377,7 @@ const CATS = {
   social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
   unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
   botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
-  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping, poll, snipe, remind',  color: 0x57f287 },
+  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping, remind',  color: 0x57f287 },
 };
 
 async function sendHelpMenu(ctx) {
@@ -1654,10 +1606,6 @@ const SLASH_DEFS = [
     .addStringOption(o => o.setName('trigger').setDescription('Trigger word/phrase').setRequired(false))
     .addStringOption(o => o.setName('response').setDescription('Bot response (required for add)').setRequired(false)),
   new SlashCommandBuilder().setName('restart').setDescription('Restart the bot process (admin only)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
-    new SlashCommandBuilder().setName('snipe').setDescription('Show the last deleted message in this channel'),
-    new SlashCommandBuilder().setName('poll').setDescription('Create a poll with reactions')
-      .addStringOption(o => o.setName('question').setDescription('Poll question').setRequired(true))
-      .addStringOption(o => o.setName('options').setDescription('Options separated by | e.g. Yes | No | Maybe').setRequired(false)),
     new SlashCommandBuilder().setName('remind').setDescription('Set a DM reminder')
       .addStringOption(o => o.setName('time').setDescription('Duration e.g. 10m, 2h, 30s').setRequired(true))
       .addStringOption(o => o.setName('note').setDescription('Reminder message').setRequired(false)),
@@ -1782,21 +1730,6 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setFooter({ text: `Guild: ${interaction.guild.name}` })
             .setTimestamp()
           ] }).catch(() => {});
-        }
-      }
-      // If deal rejected → warn the ticket will close in 3 minutes, then close
-      if (!isAccept) {
-        const ticketCh = interaction.guild.channels.cache.get(deal.channelId);
-        if (ticketCh) {
-          ticketCh.send({ embeds: [new EmbedBuilder()
-            .setColor(0xed4245)
-            .setTitle(`${E.warn} Deal Rejected`)
-            .setDescription(`The deal was rejected by <@${interaction.user.id}>.
-This ticket will **automatically close in 3 minutes**.`)
-            .setTimestamp()] }).catch(() => {});
-          setTimeout(async () => {
-            try { await closeTicket(ticketCh, interaction.member, 'Deal rejected'); } catch {}
-          }, 3 * 60 * 1000);
         }
       }
       return;
@@ -2015,13 +1948,6 @@ This ticket will **automatically close in 3 minutes**.`)
         return await COMMANDS.autorespond.run(ctx, combined);
       }
       case 'restart':     return await COMMANDS.restart.run(ctx, []);
-        case 'snipe':       return await COMMANDS.snipe.run(ctx, []);
-        case 'poll': {
-          const q = options.getString('question') || '';
-          const o = options.getString('options') || '';
-          const allArgs = o ? [q, '|', ...o.split('|').map(s => s.trim())] : q.split(' ');
-          return await COMMANDS.poll.run(ctx, allArgs);
-        }
         case 'remind': {
           const t = options.getString('time') || '';
           const n = options.getString('note') || '';
@@ -2174,7 +2100,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'snipe', 'poll', 'remind'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
