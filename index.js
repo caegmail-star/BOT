@@ -16,7 +16,6 @@ function saveConfig(c)            { fs.writeFileSync(CONFIG_FILE, JSON.stringify
 function gc(guildId)              { const c = loadConfig(); return c[guildId] || {}; }
 function setGC(guildId, key, val) { const c = loadConfig(); if (!c[guildId]) c[guildId] = {}; c[guildId][key] = val; saveConfig(c); }
 function getPrefix(guildId)       { return (gc(guildId).prefix || 'c.').toLowerCase(); }
-
 // ─── Client ───────────────────────────────────────────────────────────────────
 const client = new Client({
   intents: [
@@ -31,16 +30,18 @@ const client = new Client({
 const BOT_NAME = 'ceas';
 const OWNER_ID = process.env.OWNER_ID || '';
 
-// ─── Stores (replace with DB for persistence across restarts) ─────────────────
-const warnings   = new Map(); // userId  → [{reason,date,moderator}]
-const openTickets= new Map(); // chId    → {userId,createdAt}
-const inviteCache= new Map(); // guildId → Map(code → {uses, inviterId})
-const inviteJoins= new Map(); // guildId → Map(userId → {inviterId,code,at})
-const afkUsers   = new Map(); // userId  → {reason,since,originalNick}
-const snipeStore  = new Map(); // channelId → {content,author,avatarURL,timestamp,imageURL}
-const vouches    = new Map(); // targetId→ [{fromId,fromTag,comment,date}]
-const nickHistory= new Map(); // userId  → [{oldNick,newNick,by,date}] (max 15 per user)
-const activeDeals= new Map(); // dealId  → {proposerId,targetId,product,channelId,guildId,messageId,status}
+// ─── In-Memory Stores (loaded from MongoDB on ready) ────────────────────────
+const warnings    = new Map(); // userId    → [{reason,date,moderator}]
+const openTickets = new Map(); // channelId → {userId,createdAt}
+const vouches     = new Map(); // targetId  → [{fromId,fromTag,comment,date}]
+const nickHistory = new Map(); // userId    → [{oldNick,newNick,by,date}]
+const activeDeals = new Map(); // dealId    → deal object
+const inviteCache = new Map(); // session only
+const inviteJoins = new Map(); // session only
+const afkUsers    = new Map(); // session only
+const snipeStore  = new Map(); // session only
+
+// Save helpers — update in-memory Map then fire-and-forget to MongoDB
 
 // ─── Anti-Nuke Store ─────────────────────────────────────────────────────────
 // guildId → userId → { bans:[], kicks:[], chDel:[], roleDel:[], webhooks:[] }
@@ -215,6 +216,8 @@ function ctxFromInteraction(interaction) {
     const payload = ephemeral ? { ...opts, ephemeral: true } : opts;
     if (interaction.deferred || interaction.replied) return interaction.editReply(opts);
     used = true;
+    // fetchReply:true makes slash reply return a Message (needed for .react())
+    if (!ephemeral) return interaction.reply({ ...payload, fetchReply: true });
     return interaction.reply(payload);
   };
   return {
@@ -286,8 +289,14 @@ async function createTicket(guild, member) {
   };
   if (cfg.ticketCategory) opts.parent = cfg.ticketCategory;
   if (cfg.modRole) opts.permissionOverwrites.push({ id: cfg.modRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
-  const channel = await guild.channels.create(opts);
-  openTickets.set(channel.id, { userId: member.id, createdAt: new Date() }); saveTickets();
+  let channel;
+  try {
+    channel = await guild.channels.create(opts);
+  } catch (e) {
+    console.error('createTicket error:', e.message);
+    return { error: e.message };
+  }
+  openTickets.set(channel.id, { userId: member.id, createdAt: new Date() });
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setEmoji({ id: '1518570359262154793', name: 'emoji_2' }).setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setEmoji({ id: '1518570406825562303', name: 'emoji_3' }).setStyle(ButtonStyle.Success),
@@ -313,7 +322,7 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
     });
   } catch {}
   sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Ticket Closed`).setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
-  openTickets.delete(channel.id); saveTickets();
+  openTickets.delete(channel.id);
   await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Closing in 5 seconds…`).setDescription(`Reason: ${reason}`).setTimestamp()] });
   setTimeout(() => channel.delete().catch(() => {}), 5000);
 }
@@ -689,7 +698,7 @@ const COMMANDS = {
       if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
       if (!target) return ctx.reply({ embeds: [err('Please provide a member.')] });
       const count = (warnings.get(target.id) || []).length;
-      warnings.delete(target.id); saveWarnings();
+      warnings.delete(target.id);
       const e = modEmbed('Clearwarns', ctx.author, target, `${count} warning${count !== 1 ? 's' : ''} removed`);
       ctx.reply({ embeds: [e] });
       sendLog(ctx.guild, e);
@@ -754,7 +763,7 @@ const COMMANDS = {
       // Record history (keep last 15)
       const hist = nickHistory.get(target.id) || [];
       hist.push({ oldNick, newNick: nick || target.user.username, by: ctx.author.tag, date: new Date().toISOString() });
-      nickHistory.set(target.id, hist.slice(-15)); saveNickHistory();
+      nickHistory.set(target.id, hist.slice(-15));
       const e = modEmbed('Nickname', ctx.author, target, nick ? `Changed to \`${nick}\`` : 'Reset to username',
         [['Before', `\`${oldNick}\``, 'After', nick ? `\`${nick}\`` : `\`${target.user.username}\``]].flatMap(([n1,v1,n2,v2])=>[{name:n1,value:v1,inline:true},{name:n2,value:v2,inline:true}])
       );
@@ -813,7 +822,6 @@ const COMMANDS = {
         return;
       }
       list.push({ fromId: ctx.author.id, fromTag: ctx.author.tag, comment, date: new Date().toISOString() });
-        saveVouches();
       const msg = await ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x57f287)
         .setAuthor({ name: `Vouched!`, iconURL: target.user.displayAvatarURL() })
@@ -873,7 +881,7 @@ const COMMANDS = {
       );
       const mention = targetId ? `<@${targetId}>` : '';
       const msg = await ctx.channel.send({ content: mention || undefined, embeds: [embed], components: [row] });
-      activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() }); saveDeals();
+      activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() });
       if (ctx.isSlash) return ctx.replyEphemeral({ content: `${E.check} Deal proposal sent!` });
     },
   },
@@ -1693,19 +1701,31 @@ client.on(Events.InteractionCreate, async (interaction) => {
   if (interaction.isButton()) {
     if (interaction.customId === 'ticket_create') {
       await interaction.deferReply({ ephemeral: true });
-      const r = await createTicket(interaction.guild, interaction.member);
-      return interaction.editReply({ content: r.existing ? `${E.warn} You already have a ticket: ${r.channel}` : `${E.check} Ticket created: ${r.channel}` });
+      try {
+        const r = await createTicket(interaction.guild, interaction.member);
+        if (r.error) return interaction.editReply({ content: `${E.deny} Failed to create ticket: ${r.error}` });
+        return interaction.editReply({ content: r.existing ? `${E.warn} You already have a ticket: ${r.channel}` : `${E.check} Ticket created: ${r.channel}` });
+      } catch (e) {
+        return interaction.editReply({ content: `${E.deny} Error creating ticket: ${e.message}` });
+      }
     }
     if (interaction.customId === 'ticket_close') {
-      if (!openTickets.has(interaction.channel.id)) return interaction.reply({ embeds: [err('Not a ticket channel.')], ephemeral: true });
-      if (!isMod(interaction.member) && interaction.user.id !== openTickets.get(interaction.channel.id)?.userId)
+      // Detect ticket by Map OR by channel name (survives bot restarts)
+      const isTicket = openTickets.has(interaction.channel.id) || interaction.channel.name?.startsWith('ticket-');
+      if (!isTicket) return interaction.reply({ embeds: [err('Not a ticket channel.')], ephemeral: true });
+      const ticketOwner = openTickets.get(interaction.channel.id)?.userId;
+      if (!isMod(interaction.member) && ticketOwner && interaction.user.id !== ticketOwner)
         return interaction.reply({ embeds: [err('Only staff or the ticket owner can close this.')], ephemeral: true });
       await interaction.reply({ embeds: [warn('Closing…', 'Ticket will be deleted shortly.')], ephemeral: true });
-      return closeTicket(interaction.channel, interaction.member);
+      try { await closeTicket(interaction.channel, interaction.member); } catch (e) { console.error('closeTicket error:', e.message); }
+      return;
     }
     if (interaction.customId === 'ticket_claim') {
       if (!isMod(interaction.member)) return interaction.reply({ embeds: [err('Only staff can claim.')], ephemeral: true });
-      return interaction.update({ embeds: [...interaction.message.embeds, ok('Claimed', `Claimed by ${interaction.member}`)], components: [] });
+      const closeRow = new ActionRowBuilder().addComponents(
+        new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setEmoji({ id: '1518570359262154793', name: 'emoji_2' }).setStyle(ButtonStyle.Danger),
+      );
+      return interaction.update({ embeds: [...interaction.message.embeds, ok('Claimed', `Claimed by ${interaction.member}`)], components: [closeRow] });
     }
 
     // Deal buttons
@@ -1762,6 +1782,21 @@ client.on(Events.InteractionCreate, async (interaction) => {
             .setFooter({ text: `Guild: ${interaction.guild.name}` })
             .setTimestamp()
           ] }).catch(() => {});
+        }
+      }
+      // If deal rejected → warn the ticket will close in 3 minutes, then close
+      if (!isAccept) {
+        const ticketCh = interaction.guild.channels.cache.get(deal.channelId);
+        if (ticketCh) {
+          ticketCh.send({ embeds: [new EmbedBuilder()
+            .setColor(0xed4245)
+            .setTitle(`${E.warn} Deal Rejected`)
+            .setDescription(`The deal was rejected by <@${interaction.user.id}>.
+This ticket will **automatically close in 3 minutes**.`)
+            .setTimestamp()] }).catch(() => {});
+          setTimeout(async () => {
+            try { await closeTicket(ticketCh, interaction.member, 'Deal rejected'); } catch {}
+          }, 3 * 60 * 1000);
         }
       }
       return;
@@ -2395,6 +2430,7 @@ client.on(Events.GuildMemberRemove, async (member) => {
 
 // ─── Ready ─────────────────────────────────────────────────────────────────────
 client.once(Events.ClientReady, async () => {
+
   console.log(`\n✅  Ceas Bot online — ${client.user.tag}`);
   console.log(`⚙️   Config stored in config.json | Use c.setup to configure`);
   console.log(`🔷  ${SLASH_DEFS.length} slash commands | ${Object.keys(COMMANDS).length} prefix commands\n`);
