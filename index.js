@@ -287,7 +287,7 @@ async function createTicket(guild, member) {
   if (cfg.ticketCategory) opts.parent = cfg.ticketCategory;
   if (cfg.modRole) opts.permissionOverwrites.push({ id: cfg.modRole, allow: [PermissionFlagsBits.ViewChannel, PermissionFlagsBits.SendMessages, PermissionFlagsBits.ReadMessageHistory] });
   const channel = await guild.channels.create(opts);
-  openTickets.set(channel.id, { userId: member.id, createdAt: new Date() });
+  openTickets.set(channel.id, { userId: member.id, createdAt: new Date() }); saveTickets();
   const row = new ActionRowBuilder().addComponents(
     new ButtonBuilder().setCustomId('ticket_close').setLabel('Close Ticket').setEmoji({ id: '1518570359262154793', name: 'emoji_2' }).setStyle(ButtonStyle.Danger),
     new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setEmoji({ id: '1518570406825562303', name: 'emoji_3' }).setStyle(ButtonStyle.Success),
@@ -313,7 +313,7 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
     });
   } catch {}
   sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Ticket Closed`).setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
-  openTickets.delete(channel.id);
+  openTickets.delete(channel.id); saveTickets();
   await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Closing in 5 seconds…`).setDescription(`Reason: ${reason}`).setTimestamp()] });
   setTimeout(() => channel.delete().catch(() => {}), 5000);
 }
@@ -689,7 +689,7 @@ const COMMANDS = {
       if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
       if (!target) return ctx.reply({ embeds: [err('Please provide a member.')] });
       const count = (warnings.get(target.id) || []).length;
-      warnings.delete(target.id);
+      warnings.delete(target.id); saveWarnings();
       const e = modEmbed('Clearwarns', ctx.author, target, `${count} warning${count !== 1 ? 's' : ''} removed`);
       ctx.reply({ embeds: [e] });
       sendLog(ctx.guild, e);
@@ -754,7 +754,7 @@ const COMMANDS = {
       // Record history (keep last 15)
       const hist = nickHistory.get(target.id) || [];
       hist.push({ oldNick, newNick: nick || target.user.username, by: ctx.author.tag, date: new Date().toISOString() });
-      nickHistory.set(target.id, hist.slice(-15));
+      nickHistory.set(target.id, hist.slice(-15)); saveNickHistory();
       const e = modEmbed('Nickname', ctx.author, target, nick ? `Changed to \`${nick}\`` : 'Reset to username',
         [['Before', `\`${oldNick}\``, 'After', nick ? `\`${nick}\`` : `\`${target.user.username}\``]].flatMap(([n1,v1,n2,v2])=>[{name:n1,value:v1,inline:true},{name:n2,value:v2,inline:true}])
       );
@@ -813,6 +813,7 @@ const COMMANDS = {
         return;
       }
       list.push({ fromId: ctx.author.id, fromTag: ctx.author.tag, comment, date: new Date().toISOString() });
+        saveVouches();
       const msg = await ctx.reply({ embeds: [new EmbedBuilder()
         .setColor(0x57f287)
         .setAuthor({ name: `Vouched!`, iconURL: target.user.displayAvatarURL() })
@@ -872,7 +873,7 @@ const COMMANDS = {
       );
       const mention = targetId ? `<@${targetId}>` : '';
       const msg = await ctx.channel.send({ content: mention || undefined, embeds: [embed], components: [row] });
-      activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() });
+      activeDeals.set(dealId, { proposerId, targetId, product, channelId: ctx.channel.id, guildId: ctx.guild.id, messageId: msg.id, status: 'pending', at: Date.now() }); saveDeals();
       if (ctx.isSlash) return ctx.replyEphemeral({ content: `${E.check} Deal proposal sent!` });
     },
   },
