@@ -37,6 +37,7 @@ const openTickets= new Map(); // chId    → {userId,createdAt}
 const inviteCache= new Map(); // guildId → Map(code → {uses, inviterId})
 const inviteJoins= new Map(); // guildId → Map(userId → {inviterId,code,at})
 const afkUsers   = new Map(); // userId  → {reason,since,originalNick}
+const snipeStore  = new Map(); // channelId → {content,author,avatarURL,timestamp,imageURL}
 const vouches    = new Map(); // targetId→ [{fromId,fromTag,comment,date}]
 const nickHistory= new Map(); // userId  → [{oldNick,newNick,by,date}] (max 15 per user)
 const activeDeals= new Map(); // dealId  → {proposerId,targetId,product,channelId,guildId,messageId,status}
@@ -336,7 +337,7 @@ async function runSetup(ctx, args) {
 
   if (sub === 'view') {
     const cfg = gc(ctx.guild.id);
-    return ctx.reply({ embeds: [info(`${E.setting} Server Configuration`, [
+    return ctx.reply({ embeds: [info('Server Configuration', [
       `**Prefix:** \`${cfg.prefix || 'c.'}\``,
       `**No-Prefix Mode:** ${cfg.noprefix ? E.check + ' Enabled (mods only)' : E.deny + ' Disabled'}`,
       `**Welcome Channel:** ${cfg.welcomeChannel  ? `<#${cfg.welcomeChannel}>`         : 'Not set'}`,
@@ -364,7 +365,7 @@ async function runSetup(ctx, args) {
   const opt = SETUP_KEYS[sub];
   if (!opt) {
     const list = Object.entries(SETUP_KEYS).map(([k, v]) => `\`setup ${k}\` — ${v.label}`).join('\n');
-    return ctx.reply({ embeds: [info(`${E.setting} Setup Options`, list + '\n\n`setup view` — current config\n`setup reset` — clear all')] });
+    return ctx.reply({ embeds: [info('Setup Options', list + '\n\n`setup view` — current config\n`setup reset` — clear all')] });
   }
 
   const val = args.slice(1).join(' ').trim();
@@ -509,8 +510,8 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const list = cfg.mediaWhitelist || [];
       if (sub === 'list') {
-        if (!list.length) return ctx.reply({ embeds: [info(`${E.rules} Media Whitelist`, 'No entries.\nUse `mediawhitelist add @role` to exempt a role.')] });
-        return ctx.reply({ embeds: [info(`${E.rules} Media Whitelist`, list.map(id => `• <@&${id}> / <@${id}>`).join('\n') + '\n\n*Each shows role & user format — only the correct type will resolve.*')] });
+        if (!list.length) return ctx.reply({ embeds: [info('Media Whitelist', 'No entries.\nUse `mediawhitelist add @role` to exempt a role.')] });
+        return ctx.reply({ embeds: [info('Media Whitelist', list.map(id => `• <@&${id}> / <@${id}>`).join('\n') + '\n\n*Each shows role & user format — only the correct type will resolve.*')] });
       }
       const rawId = args[1]?.replace(/[^0-9]/g, '');
       if (!rawId) return ctx.reply({ embeds: [err('Please mention a role or user.')] });
@@ -917,7 +918,7 @@ const COMMANDS = {
       if (name.length < 2 || name.length > 32) return ctx.reply({ embeds: [err('Username must be 2–32 characters.')] });
       try {
         await client.user.setUsername(name);
-        ctx.reply({ embeds: [ok(`${E.bots} Bot Username Updated`, `Username changed to **${name}**.\n${E.warn} Discord allows only **2 username changes per hour**.`)] });
+        ctx.reply({ embeds: [ok('Bot Username Updated', `Username changed to **${name}**.\n${E.warn} Discord allows only **2 username changes per hour**.`)] });
       } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}`)] }); }
     },
   },
@@ -932,7 +933,7 @@ const COMMANDS = {
       if (!typeKey || !types[typeKey] === undefined || !text)
         return ctx.reply({ embeds: [info('botstatus Usage', '`botstatus <watching|playing|listening|competing> <text>`\n\nExample: `botstatus watching over the server`')] });
       client.user.setActivity(text, { type: types[typeKey] ?? 3 });
-      ctx.reply({ embeds: [ok(`${E.bots} Bot Status Updated`, `Now **${typeKey}** *${text}*`)] });
+      ctx.reply({ embeds: [ok('Bot Status Updated', `Now **${typeKey}** *${text}*`)] });
     },
   },
 
@@ -996,8 +997,8 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const list = cfg.autoResponds || [];
       if (sub === 'list') {
-        if (!list.length) return ctx.reply({ embeds: [info(`${E.bots} Auto-Respond List`, 'No triggers set.\nUse `autorespond add trigger | response` to add one.')] });
-        return ctx.reply({ embeds: [info(`${E.bots} Auto-Respond Triggers`, list.map((r, i) => `**${i + 1}.** \`${r.trigger}\` → ${r.response.slice(0, 60)}${r.response.length > 60 ? '…' : ''}`).join('\n'))] });
+        if (!list.length) return ctx.reply({ embeds: [info('Auto-Respond List', 'No triggers set.\nUse `autorespond add trigger | response` to add one.')] });
+        return ctx.reply({ embeds: [info('Auto-Respond Triggers', list.map((r, i) => `**${i + 1}.** \`${r.trigger}\` → ${r.response.slice(0, 60)}${r.response.length > 60 ? '…' : ''}`).join('\n'))] });
       }
       if (sub === 'add') {
         const full = args.slice(1).join(' ');
@@ -1021,7 +1022,7 @@ const COMMANDS = {
         setGC(ctx.guild.id, 'autoResponds', newList);
         return ctx.reply({ embeds: [ok('Trigger Removed', `Auto-respond for \`${trigger}\` deleted.`)] });
       }
-      ctx.reply({ embeds: [info(`${E.bots} Auto-Respond`, '`autorespond add <trigger> | <response>`\n`autorespond remove <trigger>`\n`autorespond list`')] });
+      ctx.reply({ embeds: [info('Auto-Respond', '`autorespond add <trigger> | <response>`\n`autorespond remove <trigger>`\n`autorespond list`')] });
     },
   },
   addcmd: {
@@ -1060,16 +1061,16 @@ const COMMANDS = {
       const cfg  = gc(ctx.guild.id);
       const cmds = cfg.customCmds || {};
       const keys = Object.keys(cmds);
-      if (!keys.length) return ctx.reply({ embeds: [info(`${E.rules} Custom Commands`, 'No custom commands set.\nAdmins can add one with `addcmd <name> <response>`.')] });
-      ctx.reply({ embeds: [info(`${E.rules} Custom Commands (${keys.length})`, keys.map(k => `\`${getPrefix(ctx.guild.id)}${k}\``).join(' • '))] });
+      if (!keys.length) return ctx.reply({ embeds: [info('Custom Commands', 'No custom commands set.\nAdmins can add one with `addcmd <name> <response>`.')] });
+      ctx.reply({ embeds: [info(`Custom Commands (${keys.length})`, keys.map(k => `\`${getPrefix(ctx.guild.id)}${k}\``).join(' • '))] });
     },
   },
-  reboot: {
-    cat: 'botmgmt', usage: 'reboot', desc: 'Restart the bot process (admin only)',
+  restart: {
+    cat: 'botmgmt', usage: 'restart', desc: 'Restart the bot process (owner only)',
     async run(ctx) {
-      if (!isAdmin(ctx.member) && ctx.author.id !== OWNER_ID)
-        return ctx.reply({ embeds: [err('You need Administrator permissions to reboot the bot.')] });
-      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle(`${E.warn} Rebooting…`).setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
+      if (ctx.author.id !== OWNER_ID)
+        return ctx.reply({ embeds: [err('This command is restricted to the bot owner only.')] });
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle(`${E.warn} Restarting…`).setDescription('The bot is restarting. It will be back online in a few seconds.').setTimestamp()] });
       setTimeout(() => process.exit(0), 1500);
     },
   },
@@ -1084,7 +1085,7 @@ const COMMANDS = {
         const u = await client.users.fetch(e.id).catch(() => null);
         return `${medals[i] || `**${i + 1}.**`} ${u ? u.tag : e.id} — **${e.n}** vouch(es)`;
       }));
-      ctx.reply({ embeds: [info(`${E.stock} Vouch Leaderboard`, lines.join('\n'))] });
+      ctx.reply({ embeds: [info('Vouch Leaderboard', lines.join('\n'))] });
     },
   },
   invites: {
@@ -1116,7 +1117,7 @@ const COMMANDS = {
         const u = await client.users.fetch(id).catch(() => null);
         return `${medals[i] || `**${i + 1}.**`} ${u ? u.tag : id} — **${n}** invite${n !== 1 ? 's' : ''}`;
       }));
-      ctx.reply({ embeds: [info(`${E.e4} Invite Leaderboard`, lines.join('\n') + '\n\n*Resets on bot restart*')] });
+      ctx.reply({ embeds: [info('Invite Leaderboard', lines.join('\n') + '\n\n*Resets on bot restart*')] });
     },
   },
 
@@ -1197,9 +1198,9 @@ const COMMANDS = {
     cat: 'utility', usage: 'ping', desc: 'Check bot latency',
     async run(ctx) {
       const start = Date.now();
-      const msg   = await ctx.reply({ embeds: [info(`${E.wifi} Pinging…`, 'Measuring…')] });
+      const msg   = await ctx.reply({ embeds: [info('Pinging…', 'Measuring…')] });
       const el    = Date.now() - start;
-      const edit  = info(`${E.wifi} Pong!`, `**Bot:** ${el}ms\n**API:** ${client.ws.ping}ms`);
+      const edit  = info('Pong!', `**Bot:** ${el}ms\n**API:** ${client.ws.ping}ms`);
       if (msg && msg.edit) msg.edit({ embeds: [edit] });
     },
   },
@@ -1329,6 +1330,80 @@ const COMMANDS = {
       ] });
     },
   },
+
+  // ── Snipe ──────────────────────────────────────────────────────────────────
+  snipe: {
+    cat: 'general', usage: 'snipe', desc: 'Show the last deleted message in this channel',
+    async run(ctx) {
+      const d = snipeStore.get(ctx.channel.id);
+      if (!d) return ctx.reply({ embeds: [err('Nothing to snipe — no recently deleted message found.')] });
+      const embed = new EmbedBuilder()
+        .setColor(0xed4245)
+        .setAuthor({ name: d.author, iconURL: d.avatarURL })
+        .setDescription(d.content || '*[no text content]*')
+        .setFooter({ text: 'Message deleted' })
+        .setTimestamp(d.timestamp);
+      if (d.imageURL) embed.setImage(d.imageURL);
+      ctx.reply({ embeds: [embed] });
+    },
+  },
+
+  // ── Poll ───────────────────────────────────────────────────────────────────
+  poll: {
+    cat: 'general', usage: 'poll <question> [| Option1 | Option2 ...]', desc: 'Create a poll — yes/no or up to 5 custom options',
+    async run(ctx, args) {
+      const full     = args.join(' ');
+      const parts    = full.split('|').map(s => s.trim()).filter(Boolean);
+      const question = parts[0];
+      if (!question) return ctx.reply({ embeds: [err('Provide a question. Example: `poll Is this bot cool?`')] });
+      const options  = parts.slice(1);
+      const emojis   = ['1️⃣','2️⃣','3️⃣','4️⃣','5️⃣'];
+      const desc     = options.length
+        ? `**${question}**\n\n${options.map((o, i) => `${emojis[i]} ${o}`).join('\n')}`
+        : `**${question}**\n\n✅ Yes   ❌ No`;
+      const embed = new EmbedBuilder()
+        .setColor(0x5865f2)
+        .setTitle('📊 Poll')
+        .setDescription(desc)
+        .setFooter({ text: `Poll by ${ctx.author.tag}` })
+        .setTimestamp();
+      const sent = await ctx.reply({ embeds: [embed] });
+      if (sent) {
+        if (options.length) {
+          for (let i = 0; i < Math.min(options.length, 5); i++) await sent.react(emojis[i]).catch(() => {});
+        } else {
+          await sent.react('✅').catch(() => {});
+          await sent.react('❌').catch(() => {});
+        }
+      }
+    },
+  },
+
+  // ── Remind ─────────────────────────────────────────────────────────────────
+  remind: {
+    cat: 'general', usage: 'remind <time> <message>  (e.g. remind 30m check the oven)', desc: 'Set a reminder — bot DMs you after the given time',
+    async run(ctx, args) {
+      const raw = args[0];
+      if (!raw) return ctx.reply({ embeds: [err('Usage: `remind 10m grab lunch`\nUnits: s, m, h')] });
+      const match = raw.match(/^(\d+)([smh])$/i);
+      if (!match) return ctx.reply({ embeds: [err('❌ Invalid time format. Use: `30s`, `10m`, `2h`')] });
+      const val  = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      const ms   = unit === 's' ? val * 1000 : unit === 'm' ? val * 60_000 : val * 3_600_000;
+      if (ms > 24 * 3_600_000) return ctx.reply({ embeds: [err('❌ Maximum reminder time is 24 hours.')] });
+      const note = args.slice(1).join(' ') || 'Your reminder is up!';
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('⏰ Reminder Set').setDescription(`I'll DM you in **${raw}**.\n**Note:** ${note}`).setTimestamp()] });
+      const userId   = ctx.author.id;
+      const guildName = ctx.guild.name;
+      setTimeout(async () => {
+        try {
+          const user = await client.users.fetch(userId);
+          await user.send({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('⏰ Reminder').setDescription(`**${note}**\n\n*Set ${raw} ago in ${guildName}*`).setTimestamp()] });
+        } catch { /* DMs closed */ }
+      }, ms);
+    },
+  },
+
 };
 
 // ─── Help menu ────────────────────────────────────────────────────────────────
@@ -1341,7 +1416,7 @@ const CATS = {
   social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
   unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
   botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
-  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping',                color: 0x57f287 },
+  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping, poll, snipe, remind',  color: 0x57f287 },
 };
 
 async function sendHelpMenu(ctx) {
@@ -1569,7 +1644,14 @@ const SLASH_DEFS = [
       .addChoices({ name: 'add', value: 'add' }, { name: 'remove', value: 'remove' }, { name: 'list', value: 'list' }))
     .addStringOption(o => o.setName('trigger').setDescription('Trigger word/phrase').setRequired(false))
     .addStringOption(o => o.setName('response').setDescription('Bot response (required for add)').setRequired(false)),
-  new SlashCommandBuilder().setName('reboot').setDescription('Restart the bot process (admin only)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+  new SlashCommandBuilder().setName('restart').setDescription('Restart the bot process (admin only)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+    new SlashCommandBuilder().setName('snipe').setDescription('Show the last deleted message in this channel'),
+    new SlashCommandBuilder().setName('poll').setDescription('Create a poll with reactions')
+      .addStringOption(o => o.setName('question').setDescription('Poll question').setRequired(true))
+      .addStringOption(o => o.setName('options').setDescription('Options separated by | e.g. Yes | No | Maybe').setRequired(false)),
+    new SlashCommandBuilder().setName('remind').setDescription('Set a DM reminder')
+      .addStringOption(o => o.setName('time').setDescription('Duration e.g. 10m, 2h, 30s').setRequired(true))
+      .addStringOption(o => o.setName('note').setDescription('Reminder message').setRequired(false)),
 
   // Bot management
   new SlashCommandBuilder().setName('botavatar').setDescription("Change the bot's avatar (admin only)")
@@ -1896,7 +1978,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const combined = action === 'add' ? [action, `${trigger} | ${response}`] : [action, trigger];
         return await COMMANDS.autorespond.run(ctx, combined);
       }
-      case 'reboot':     return await COMMANDS.reboot.run(ctx, []);
+      case 'restart':     return await COMMANDS.restart.run(ctx, []);
+        case 'snipe':       return await COMMANDS.snipe.run(ctx, []);
+        case 'poll': {
+          const q = options.getString('question') || '';
+          const o = options.getString('options') || '';
+          const allArgs = o ? [q, '|', ...o.split('|').map(s => s.trim())] : q.split(' ');
+          return await COMMANDS.poll.run(ctx, allArgs);
+        }
+        case 'remind': {
+          const t = options.getString('time') || '';
+          const n = options.getString('note') || '';
+          return await COMMANDS.remind.run(ctx, [t, ...n.split(' ')].filter(Boolean));
+        }
       case 'botavatar':    return await COMMANDS.botavatar.run(ctx, [options.getString('url') || '']);
       case 'botbanner':    return await COMMANDS.botbanner.run(ctx, [options.getString('url') || '']);
       case 'botbio':       return await COMMANDS.botbio.run(ctx, (options.getString('bio') || '').split(' '));
@@ -2035,7 +2129,7 @@ client.on(Events.MessageCreate, async (message) => {
     if (!cmdName) return;
   }
 
-  if (!cmdName) return message.reply({ embeds: [info(`${E.chat} Hey!`, `Use \`${PREFIX}help\` or \`ceas help\`\nFirst time? Run \`${PREFIX}setup\` to configure!`)] });
+  if (!cmdName) return message.reply({ embeds: [info('Hey!', `Use \`${PREFIX}help\` or \`ceas help\`\nFirst time? Run \`${PREFIX}setup\` to configure!`)] });
 
   const command = COMMANDS[cmdName];
   if (!command) return message.reply({ embeds: [err(`Unknown command \`${cmdName}\`\nUse \`${PREFIX}help\` for the full list.`)] });
@@ -2044,7 +2138,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'reboot'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'snipe', 'poll', 'remind'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
@@ -2193,7 +2287,7 @@ client.on(Events.GuildMemberAdd, async (member) => {
   if (!executorId || executorId === client.user.id) return;
   if (isNukeWhitelisted(member.guild, executorId)) {
     // Whitelisted — just log
-    sendLog(member.guild, info(`${E.bots} Bot Added`, `Bot **${member.user.tag}** added by <@${executorId}> (whitelisted)`));
+    sendLog(member.guild, info('Bot Added', `Bot **${member.user.tag}** added by <@${executorId}> (whitelisted)`));
     return;
   }
   // Non-whitelisted user added a bot → warn in log
