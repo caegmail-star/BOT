@@ -303,7 +303,7 @@ async function createTicket(guild, member, ticketType = null) {
     new ButtonBuilder().setCustomId('ticket_claim').setLabel('Claim').setEmoji({ id: '1518570406825562303', name: 'emoji_3' }).setStyle(ButtonStyle.Success),
   );
   await channel.send({
-    content: `${member}${cfg.modRole ? ` <@&${cfg.modRole}>` : ''}`,
+    content: `${member}${cfg.modRole ? ` <@&${cfg.modRole}>` : ''}${cfg.staffPingRole && cfg.staffPingRole !== cfg.modRole ? ` <@&${cfg.staffPingRole}>` : ''}`,
     embeds: [new EmbedBuilder().setColor(0x5865f2).setTitle(`${E.hash} Ticket Opened`).setDescription(`Welcome ${member}!\nDescribe your issue and staff will help shortly.`).addFields({ name: 'Close', value: 'Button below or `close` command' }).setFooter({ text: guild.name, iconURL: guild.iconURL() }).setTimestamp()],
     components: [row],
   });
@@ -581,6 +581,22 @@ const COMMANDS = {
       ctx.reply({ embeds: [ok('Ticket Note Set', `The ticket panel will now show:\n\n> ${text.slice(0, 200)}${text.length > 200 ? '…' : ''}`)] });
     },
   },
+  setstaffping: {
+    cat: 'admin', usage: 'setstaffping @role | clear', desc: 'Set a role to ping in the ticket channel when a new ticket is opened (use "clear" to remove)',
+    run: async (ctx, args) => {
+      if (!args[0]) return ctx.reply({ embeds: [err('Mention a role or type `clear`.\nExample: `setstaffping @Staff`')] });
+      if (args[0].toLowerCase() === 'clear') {
+        setGC(ctx.guild.id, 'staffPingRole', null);
+        return ctx.reply({ embeds: [ok('Staff Ping Cleared', 'No role will be pinged when tickets open.')] });
+      }
+      const roleId = args[0].replace(/\D/g, '');
+      const role = ctx.guild.roles.cache.get(roleId);
+      if (!role) return ctx.reply({ embeds: [err('Role not found. Mention the role directly.')] });
+      setGC(ctx.guild.id, 'staffPingRole', roleId);
+      return ctx.reply({ embeds: [ok('Staff Ping Set', `${role} will be pinged whenever a new ticket is opened.`)] });
+    },
+  },
+
   settranscript: {
     cat: 'admin', usage: 'settranscript #channel', desc: 'Set a channel where ticket transcripts are posted when tickets close',
     async run(ctx, args) {
@@ -1671,6 +1687,9 @@ const SLASH_DEFS = [
 
   new SlashCommandBuilder().setName('setticketnote').setDescription('Set the description shown on the ticket creation panel').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
 
+  new SlashCommandBuilder().setName('setstaffping').setDescription('Set role to ping when a new ticket opens').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addRoleOption(o => o.setName('role').setDescription('Staff role to ping (omit to clear)').setRequired(false)),
+
   new SlashCommandBuilder().setName('settranscript').setDescription('Set channel where ticket transcripts are posted on close').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(o => o.setName('channel').setDescription('Transcript channel').setRequired(true)),
 
@@ -1932,6 +1951,10 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case 'setticketnote': {
         const text = options.getString('text') || '';
         return await COMMANDS.setticketnote.run(ctx, text ? [text] : []);
+      }
+      case 'setstaffping': {
+        const role = interaction.options.getRole('role');
+        return await COMMANDS.setstaffping.run(ctx, role ? [role.id] : ['clear']);
       }
       case 'settranscript': {
         const ch = options.getChannel('channel');
@@ -2246,7 +2269,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'settranscript', 'setticketimage', 'tickettype', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'setstaffping', 'settranscript', 'setticketimage', 'tickettype', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
