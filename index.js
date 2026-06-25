@@ -270,7 +270,7 @@ async function buildTranscript(channel) {
   );
 }
 
-async function createTicket(guild, member) {
+async function createTicket(guild, member, ticketType = null) {
   for (const [chId, d] of openTickets) {
     if (d.userId === member.id) {
       const ch = guild.channels.cache.get(chId);
@@ -278,8 +278,9 @@ async function createTicket(guild, member) {
     }
   }
   const cfg = gc(guild.id);
+  const typeSuffix = ticketType ? `-${ticketType.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 12)}` : '';
   const opts = {
-    name: `ticket-${member.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 20)}`,
+    name: `ticket${typeSuffix}-${member.user.username.toLowerCase().replace(/[^a-z0-9]/g, '').slice(0, 18)}`,
     type: ChannelType.GuildText,
     permissionOverwrites: [
       { id: guild.roles.everyone, deny: [PermissionFlagsBits.ViewChannel] },
@@ -314,6 +315,9 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
   if (!d) return;
   const buf  = await buildTranscript(channel);
   const file = new AttachmentBuilder(buf, { name: `transcript-${channel.name}.txt` });
+  const cfg  = gc(channel.guild.id);
+
+  // DM the ticket creator
   try {
     const creator = await client.users.fetch(d.userId);
     await creator.send({
@@ -321,6 +325,30 @@ async function closeTicket(channel, closedBy, reason = 'No reason') {
       files: [file],
     });
   } catch {}
+
+  // Send transcript to configured transcript channel
+  if (cfg.transcriptChannel) {
+    const trCh = channel.guild.channels.cache.get(cfg.transcriptChannel);
+    if (trCh) {
+      const closedByTag = closedBy?.user?.tag || closedBy?.tag || String(closedBy);
+      trCh.send({
+        embeds: [new EmbedBuilder()
+          .setColor(0x5865f2)
+          .setTitle(`${E.info} Ticket Transcript — #${channel.name}`)
+          .addFields(
+            { name: 'Opened by',  value: `<@${d.userId}>`,  inline: true },
+            { name: 'Closed by',  value: closedByTag,        inline: true },
+            { name: 'Reason',     value: reason,             inline: false },
+            { name: 'Opened at',  value: `<t:${Math.floor(d.createdAt / 1000)}:f>`, inline: true },
+            { name: 'Closed at',  value: `<t:${Math.floor(Date.now() / 1000)}:f>`,  inline: true },
+          )
+          .setFooter({ text: channel.guild.name, iconURL: channel.guild.iconURL() })
+          .setTimestamp()],
+        files: [new AttachmentBuilder(buf, { name: `transcript-${channel.name}.txt` })],
+      }).catch(() => {});
+    }
+  }
+
   sendLog(channel.guild, new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Ticket Closed`).setDescription(`**Channel:** #${channel.name}\n**Closed by:** ${closedBy}\n**Reason:** ${reason}`).setTimestamp());
   openTickets.delete(channel.id);
   await channel.send({ embeds: [new EmbedBuilder().setColor(0xed4245).setTitle(`${E.deny} Closing in 5 seconds…`).setDescription(`Reason: ${reason}`).setTimestamp()] });
@@ -551,6 +579,69 @@ const COMMANDS = {
       if (text.length > 1024) return ctx.reply({ embeds: [err('Description too long (max 1024 characters).')] });
       setGC(ctx.guild.id, 'ticketNote', text);
       ctx.reply({ embeds: [ok('Ticket Note Set', `The ticket panel will now show:\n\n> ${text.slice(0, 200)}${text.length > 200 ? '…' : ''}`)] });
+    },
+  },
+  settranscript: {
+    cat: 'admin', usage: 'settranscript #channel', desc: 'Set a channel where ticket transcripts are posted when tickets close',
+    async run(ctx, args) {
+      if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
+      const chId = args[0]?.replace(/[^0-9]/g, '');
+      if (!chId) return ctx.reply({ embeds: [err('Please mention a channel.\nExample: `settranscript #transcripts`')] });
+      const ch = ctx.guild.channels.cache.get(chId);
+      if (!ch) return ctx.reply({ embeds: [err('Channel not found.')] });
+      setGC(ctx.guild.id, 'transcriptChannel', chId);
+      ctx.reply({ embeds: [ok('Transcript Channel Set', `Ticket transcripts will be sent to ${ch} when tickets close.\n\nThe ticket creator will still receive a DM as well.`)] });
+    },
+  },
+  setticketimage: {
+    cat: 'admin', usage: 'setticketimage <url | clear>', desc: 'Set an image shown on the ticket panel (use "clear" to remove)',
+    async run(ctx, args) {
+      if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
+      const url = args[0];
+      if (!url) return ctx.reply({ embeds: [err('Provide an image URL or `clear` to remove.\nExample: `setticketimage https://i.imgur.com/abc.png`')] });
+      if (url.toLowerCase() === 'clear') {
+        setGC(ctx.guild.id, 'ticketImage', null);
+        return ctx.reply({ embeds: [ok('Ticket Image Cleared', 'The ticket panel will no longer show an image.')] });
+      }
+      setGC(ctx.guild.id, 'ticketImage', url);
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle(`${E.check} Ticket Image Set`).setDescription('The ticket panel will display this image.').setImage(url).setTimestamp()] });
+    },
+  },
+  tickettype: {
+    cat: 'admin', usage: 'tickettype <add|remove|list> [name]', desc: 'Manage ticket types shown in the panel (e.g. Deal, Staff Report, Help)',
+    async run(ctx, args) {
+      if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
+      const sub  = (args[0] || 'list').toLowerCase();
+      const cfg  = gc(ctx.guild.id);
+      const types = cfg.ticketTypes || [];
+
+      if (sub === 'list') {
+        if (!types.length) return ctx.reply({ embeds: [info('Ticket Types', 'No custom types set.\nUse `tickettype add <name>` to add one (e.g. `tickettype add Deal`).\n\nWith no types, the panel shows a single **Open Ticket** button.')] });
+        return ctx.reply({ embeds: [info('Ticket Types', types.map((t, i) => `**${i + 1}.** ${t}`).join('\n') + '\n\nUse `tickettype remove <name>` to remove one.')] });
+      }
+
+      if (sub === 'add') {
+        const name = args.slice(1).join(' ').trim();
+        if (!name) return ctx.reply({ embeds: [err('Provide a name.\nExample: `tickettype add Deal`')] });
+        if (name.length > 50) return ctx.reply({ embeds: [err('Type name must be 50 characters or less.')] });
+        if (types.length >= 25) return ctx.reply({ embeds: [err('Maximum 25 ticket types.')] });
+        if (types.some(t => t.toLowerCase() === name.toLowerCase())) return ctx.reply({ embeds: [err(`Type **${name}** already exists.`)] });
+        types.push(name);
+        setGC(ctx.guild.id, 'ticketTypes', types);
+        return ctx.reply({ embeds: [ok('Ticket Type Added', `**${name}** added.\nThe panel will now show a dropdown with all types.`)] });
+      }
+
+      if (sub === 'remove') {
+        const name = args.slice(1).join(' ').trim().toLowerCase();
+        if (!name) return ctx.reply({ embeds: [err('Provide the name to remove.\nExample: `tickettype remove Deal`')] });
+        const idx = types.findIndex(t => t.toLowerCase() === name);
+        if (idx === -1) return ctx.reply({ embeds: [err(`Type **${name}** not found.`)] });
+        const removed = types.splice(idx, 1)[0];
+        setGC(ctx.guild.id, 'ticketTypes', types);
+        return ctx.reply({ embeds: [ok('Ticket Type Removed', `**${removed}** removed.${types.length === 0 ? '\n\nNo types remain — panel will show a single button.' : ''}`)] });
+      }
+
+      ctx.reply({ embeds: [info('Ticket Type Usage', '`tickettype add <name>` — add a ticket type\n`tickettype remove <name>` — remove a ticket type\n`tickettype list` — see all types')] });
     },
   },
   setnoprefix: {
@@ -969,9 +1060,9 @@ const COMMANDS = {
       if (!bio) return ctx.reply({ embeds: [err('Provide a bio text.\nExample: `botbio I am CEAS Bot, here to help!`')] });
       if (bio.length > 190) return ctx.reply({ embeds: [err('Bio must be 190 characters or less.')] });
       try {
-        await client.user.edit({ bio });
+        await client.rest.patch('/users/@me', { body: { bio } });
         ctx.reply({ embeds: [new EmbedBuilder().setColor(0x9b59b6).setTitle(`${E.bots} Bot Bio Updated`).setDescription(`New bio:\n> ${bio}`).setTimestamp()] });
-      } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Bots may need verified bot status to set a bio.*`)] }); }
+      } catch (e) { ctx.reply({ embeds: [err(`Failed: ${e.message}\n\n*Note: Discord only allows About Me for bots with verified status. If this keeps failing, the feature may not be available for this bot.*`)] }); }
     },
   },
   serveravatar: {
@@ -1155,8 +1246,7 @@ const COMMANDS = {
       if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
       ctx.deleteMsg();
       const p     = args.join(' ').split('|').map(s => s.trim());
-      const color = p[2] ? parseInt(p[2].replace('#', ''), 16) : 0x5865f2;
-      const emb   = new EmbedBuilder().setColor(isNaN(color) ? 0x5865f2 : color).setTitle(p[0] || 'Embed').setDescription(p[1] || '\u200b').setFooter({ text: ctx.guild.name, iconURL: ctx.guild.iconURL() }).setTimestamp();
+      const emb   = new EmbedBuilder().setColor(0x000000).setTitle(p[0] || 'Embed').setDescription(p[1] || '\u200b').setFooter({ text: ctx.guild.name, iconURL: ctx.guild.iconURL() }).setTimestamp();
       if (p[3]) emb.setImage(p[3]);
       ctx.channel.send({ embeds: [emb] });
       if (ctx.isSlash) ctx.replyEphemeral({ embeds: [ok('Sent', 'Embed sent.')] });
@@ -1219,18 +1309,37 @@ const COMMANDS = {
     cat: 'tickets', usage: 'ticket', desc: 'Post the ticket creation panel (admin only)',
     async run(ctx) {
       if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
-      const cfg  = gc(ctx.guild.id);
-      const note = cfg.ticketNote || 'Click below to open a support ticket.\nOur staff team will assist you as soon as possible.';
-      const row  = new ActionRowBuilder().addComponents(
-        new ButtonBuilder().setCustomId('ticket_create').setLabel('Open Ticket').setEmoji({ id: '1518572054981509152', name: 'pb_y_chat', animated: true }).setStyle(ButtonStyle.Primary),
-      );
-      ctx.channel.send({ embeds: [new EmbedBuilder()
+      const cfg   = gc(ctx.guild.id);
+      const note  = cfg.ticketNote || 'Click below to open a support ticket.\nOur staff team will assist you as soon as possible.';
+      const types = cfg.ticketTypes || [];
+
+      const emb = new EmbedBuilder()
         .setColor(0x5865f2)
-        .setTitle(`${E.hash} Support Tickets`)
+        .setTitle(`${E.e27} Support Tickets`)
         .setDescription(note)
         .setFooter({ text: ctx.guild.name, iconURL: ctx.guild.iconURL() })
-        .setTimestamp()], components: [row] });
-      ctx.reply({ embeds: [ok('Panel Sent', `Ticket panel posted in ${ctx.channel}.\nCustomize the description with \`setticketnote <text>\`.`)] });
+        .setTimestamp();
+
+      if (cfg.ticketImage) emb.setImage(cfg.ticketImage);
+
+      let components;
+      if (types.length > 0) {
+        const menu = new StringSelectMenuBuilder()
+          .setCustomId('ticket_type_select')
+          .setPlaceholder(`${E.e27} Select a ticket category…`)
+          .addOptions(types.map(t => ({ label: t, value: t, emoji: parseEmoji(E.e27) })));
+        components = [new ActionRowBuilder().addComponents(menu)];
+      } else {
+        const btn = new ButtonBuilder()
+          .setCustomId('ticket_create')
+          .setLabel('Open Ticket')
+          .setEmoji({ id: '1518573391244951572', name: 'emoji_27' })
+          .setStyle(ButtonStyle.Primary);
+        components = [new ActionRowBuilder().addComponents(btn)];
+      }
+
+      ctx.channel.send({ embeds: [emb], components });
+      ctx.reply({ embeds: [ok('Panel Sent', `Ticket panel posted in ${ctx.channel}.\nCustomize with \`setticketnote\`, \`setticketimage\`, and \`tickettype\`.`)] });
     },
   },
   close: {
@@ -1353,13 +1462,14 @@ const COMMANDS = {
       const ms   = unit === 's' ? val * 1000 : unit === 'm' ? val * 60_000 : val * 3_600_000;
       if (ms > 24 * 3_600_000) return ctx.reply({ embeds: [err(' Maximum reminder time is 24 hours.')] });
       const note = args.slice(1).join(' ') || 'Your reminder is up!';
-      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('<:clowd:1509545456869310584> Reminder Set').setDescription(`I'll DM you in **${raw}**.\n**Note:** ${note}`).setTimestamp()] });
+      const fireAt = Math.floor((Date.now() + ms) / 1000);
+      await ctx.reply({ embeds: [new EmbedBuilder().setColor(0x57f287).setTitle('⏰ Reminder Set').setDescription(`I'll DM you <t:${fireAt}:R> (at <t:${fireAt}:t>).\n**Note:** ${note}`).setTimestamp()] });
       const userId   = ctx.author.id;
       const guildName = ctx.guild.name;
       setTimeout(async () => {
         try {
           const user = await client.users.fetch(userId);
-          await user.send({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('<:clowd:1509545456869310584> Reminder').setDescription(`**${note}**\n\n*Set ${raw} ago in ${guildName}*`).setTimestamp()] });
+          await user.send({ embeds: [new EmbedBuilder().setColor(0xf39c12).setTitle('⏰ Reminder').setDescription(`**${note}**\n\n*Set in **${guildName}***`).setFooter({ text: `Reminder time: ${raw}` }).setTimestamp()] });
         } catch { /* DMs closed */ }
       }, ms);
     },
@@ -1559,8 +1669,18 @@ const SLASH_DEFS = [
   new SlashCommandBuilder().setName('close').setDescription('Close the current ticket')
     .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
 
-  new SlashCommandBuilder().setName('setticketnote').setDescription('Set the description shown on the ticket creation panel').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
-    .addStringOption(o => o.setName('text').setDescription('Description text (leave blank to reset to default)').setRequired(false)),
+  new SlashCommandBuilder().setName('setticketnote').setDescription('Set the description shown on the ticket creation panel').setDefaultMemberPermissions(PermissionFlagsBits.Administrator),
+
+  new SlashCommandBuilder().setName('settranscript').setDescription('Set channel where ticket transcripts are posted on close').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addChannelOption(o => o.setName('channel').setDescription('Transcript channel').setRequired(true)),
+
+  new SlashCommandBuilder().setName('setticketimage').setDescription('Set an image displayed on the ticket panel').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(o => o.setName('url').setDescription('Direct image URL, or "clear" to remove').setRequired(true)),
+
+  new SlashCommandBuilder().setName('tickettype').setDescription('Manage ticket category types shown in the panel').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
+    .addStringOption(o => o.setName('action').setDescription('add, remove, or list').setRequired(true)
+      .addChoices({ name: 'add', value: 'add' }, { name: 'remove', value: 'remove' }, { name: 'list', value: 'list' }))
+    .addStringOption(o => o.setName('name').setDescription('Ticket type name (e.g. Deal, Staff Report, Help)').setRequired(false)),
 
   new SlashCommandBuilder().setName('setmedia').setDescription('Make a channel media-only (images/videos/files only)').setDefaultMemberPermissions(PermissionFlagsBits.Administrator)
     .addChannelOption(o => o.setName('channel').setDescription('Channel to make media-only').setRequired(true))
@@ -1643,6 +1763,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
   // Help dropdown
   if (interaction.isStringSelectMenu() && interaction.customId === 'help_menu') {
     return interaction.update({ embeds: [buildCatEmbed(interaction.values[0], interaction.guild.id)], components: interaction.message.components });
+  }
+
+  // Ticket type select menu
+  if (interaction.isStringSelectMenu() && interaction.customId === 'ticket_type_select') {
+    await interaction.deferReply({ ephemeral: true });
+    const ticketType = interaction.values[0];
+    try {
+      const r = await createTicket(interaction.guild, interaction.member, ticketType);
+      if (r.error) return interaction.editReply({ content: `${E.deny} Failed to create ticket: ${r.error}` });
+      return interaction.editReply({ content: r.existing ? `${E.warn} You already have a ticket: ${r.channel}` : `${E.e27} Ticket created: ${r.channel}` });
+    } catch (e) {
+      return interaction.editReply({ content: `${E.deny} Error: ${e.message}` });
+    }
   }
 
   // Ticket buttons
@@ -1799,6 +1932,19 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case 'setticketnote': {
         const text = options.getString('text') || '';
         return await COMMANDS.setticketnote.run(ctx, text ? [text] : []);
+      }
+      case 'settranscript': {
+        const ch = options.getChannel('channel');
+        return await COMMANDS.settranscript.run(ctx, ch ? [ch.id] : []);
+      }
+      case 'setticketimage': {
+        const url = options.getString('url') || '';
+        return await COMMANDS.setticketimage.run(ctx, url ? [url] : []);
+      }
+      case 'tickettype': {
+        const action = options.getString('action') || 'list';
+        const name   = options.getString('name') || '';
+        return await COMMANDS.tickettype.run(ctx, name ? [action, ...name.split(' ')] : [action]);
       }
       case 'setmedia': {
         const ch     = options.getChannel('channel');
@@ -2100,7 +2246,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'settranscript', 'setticketimage', 'tickettype', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
