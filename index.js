@@ -685,6 +685,25 @@ const COMMANDS = {
         .addFields({ name: 'Total Warnings', value: `${count}`, inline: true }, { name: 'Issued by', value: ctx.author.tag, inline: true })
         .setFooter({ text: 'Contact a staff member if you believe this is a mistake.' })
         .setTimestamp()] }).catch(() => {});
+      // Auto-timeout at 3 warnings (1 day = 86400000 ms)
+      if (count >= 3) {
+        const canTimeout = target.moderatable;
+        if (canTimeout) {
+          await target.timeout(86_400_000, `Auto-timeout: reached ${count} warnings`).catch(() => {});
+          const timeoutEmbed = new EmbedBuilder().setColor(0x000000)
+            .setTitle(`${E.warn} Auto-Timeout Applied`)
+            .setDescription(`${target} has reached **${count} warnings** and received a **1-day timeout** automatically.`)
+            .setFooter({ text: `Triggered by warn from ${ctx.author.tag}` })
+            .setTimestamp();
+          ctx.channel.send({ embeds: [timeoutEmbed] }).catch(() => {});
+          sendLog(ctx.guild, timeoutEmbed);
+          target.user.send({ embeds: [new EmbedBuilder().setColor(0x000000)
+            .setTitle(`${E.warn} You have been timed out — ${ctx.guild.name}`)
+            .setDescription(`You reached **${count} warnings** and have been automatically timed out for **1 day**.\n**Last reason:** ${reason}`)
+            .setFooter({ text: 'Contact a staff member if you believe this is a mistake.' })
+            .setTimestamp()] }).catch(() => {});
+        }
+      }
     },
   },
   warnings: {
@@ -1439,15 +1458,15 @@ const COMMANDS = {
 
 // ─── Help menu ────────────────────────────────────────────────────────────────
 const CATS = {
-  admin:      { emoji: E.setting, label: 'Admin',      desc: 'Setup & configuration',              color: 0xeb459e },
-  moderation: { emoji: E.mod,     label: 'Moderation', desc: 'Ban, kick, mute, warn & more',       color: 0xed4245 },
-  antinuke:   { emoji: E.secure,  label: 'Anti-Nuke',  desc: 'Server nuke protection',             color: 0xff4444 },
-  utility:    { emoji: E.sinfo,   label: 'Utility',    desc: 'Say, embed, userinfo, ping',         color: 0x5865f2 },
-  tickets:    { emoji: E.hash,    label: 'Tickets',    desc: 'Ticket panel, close, transcript',    color: 0xfee75c },
-  social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard', color: 0xf1c40f },
-  unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',       color: 0xf39c12 },
-  botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',  desc: 'Avatar, banner, bio, username, status + server avatar/banner (admin)', color: 0x9b59b6 },
-  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping, remind',  color: 0x57f287 },
+  admin:      { emoji: E.setting, label: 'Admin',      desc: 'Setup, welcome, logs, ticket image, ticket types', color: 0x000000 },
+  moderation: { emoji: E.mod,     label: 'Moderation', desc: 'Ban, kick, mute, warn (3 warns = 1 day timeout)', color: 0x000000 },
+  antinuke:   { emoji: E.secure,  label: 'Anti-Nuke',  desc: 'Server nuke protection & whitelist',              color: 0x000000 },
+  utility:    { emoji: E.sinfo,   label: 'Utility',    desc: 'Say, embed, userinfo, avatar, ping',              color: 0x000000 },
+  tickets:    { emoji: E.e27,     label: 'Tickets',    desc: 'Panel, image, categories, close, transcript',     color: 0x000000 },
+  social:     { emoji: E.stock,   label: 'Social',     desc: 'Vouch system, deals & leaderboard',               color: 0x000000 },
+  unique:     { emoji: E.flower,  label: 'Unique',     desc: 'Auto-respond, custom commands',                   color: 0x000000 },
+  botmgmt:    { emoji: E.bots,    label: 'Bot Mgmt',   desc: 'Avatar, banner, bio, username, status',           color: 0x000000 },
+  general:    { emoji: E.rules,   label: 'General',    desc: 'Help, AFK, ping, remind (with countdown timer)',  color: 0x000000 },
 };
 
 async function sendHelpMenu(ctx) {
@@ -1744,7 +1763,7 @@ client.on(Events.InteractionCreate, async (interaction) => {
         const menu = new StringSelectMenuBuilder()
           .setCustomId('ticket_type_select')
           .setPlaceholder(`${E.e27} Select a ticket category…`)
-          .addOptions(types.map(t => ({ label: t, value: t, emoji: parseEmoji(E.e27) })));
+          .addOptions(types.map(t => ({ label: t, value: t })));
         return interaction.reply({
           embeds: [new EmbedBuilder().setColor(0x000000).setTitle(`${E.e27} Select Ticket Category`).setDescription('Please choose a category for your ticket:').setTimestamp()],
           components: [new ActionRowBuilder().addComponents(menu)],
