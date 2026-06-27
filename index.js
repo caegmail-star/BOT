@@ -234,15 +234,22 @@ function ctxFromInteraction(interaction) {
 
 // ─── AFK ──────────────────────────────────────────────────────────────────────
 async function setAfk(member, reason) {
-  const original = member.nickname || member.user.username;
-  afkUsers.set(member.id, { reason, since: Date.now(), originalNick: original });
+  // Always work with the current nickname; fall back to display name only
+  const currentNick = member.nickname || null;
+  const original = currentNick || member.displayName;
+  afkUsers.set(member.id, { reason, since: Date.now(), originalNick: original, hadNick: !!currentNick });
   try { await member.setNickname(`[A F K] ${original}`.slice(0, 32)); } catch {}
 }
 async function removeAfk(member) {
   const d = afkUsers.get(member.id);
   if (!d) return;
   afkUsers.delete(member.id);
-  try { await member.setNickname(d.originalNick === member.user.username ? null : d.originalNick); } catch {}
+  // Restore original nickname: if they had no nickname before, clear it
+  try { await member.setNickname(d.hadNick ? d.originalNick : null); } catch {}
+}
+// Fallback: check by nickname prefix (survives bot restarts when afkUsers map is empty)
+function isNickAfk(member) {
+  return member?.nickname?.startsWith('[A F K]') || false;
 }
 
 // ─── Ticket helpers ───────────────────────────────────────────────────────────
@@ -723,15 +730,26 @@ const COMMANDS = {
     },
   },
   clearwarns: {
-    cat: 'moderation', usage: 'clearwarns @user', desc: 'Clear all warnings for a member',
+    cat: 'moderation', usage: 'clearwarns @user', desc: 'Clear all warnings for a member (also lifts active timeout)',
     async run(ctx, args, target) {
       if (!isAdmin(ctx.member)) return ctx.reply({ embeds: [err('You need Administrator permissions.')] });
       if (!target) return ctx.reply({ embeds: [err('Please provide a member.')] });
       const count = (warnings.get(target.id) || []).length;
       warnings.delete(target.id);
-      const e = modEmbed('Clearwarns', ctx.author, target, `${count} warning${count !== 1 ? 's' : ''} removed`);
+      // Also lift timeout if currently timed out
+      let timedOutLifted = false;
+      if (target.communicationDisabledUntilTimestamp && target.communicationDisabledUntilTimestamp > Date.now()) {
+        await target.timeout(null, `Timeout lifted: warns cleared by ${ctx.author.tag}`).catch(() => {});
+        timedOutLifted = true;
+      }
+      const extra = timedOutLifted ? [['Timeout', 'Lifted automatically']] : [];
+      const e = modEmbed('Clearwarns', ctx.author, target, `${count} warning${count !== 1 ? 's' : ''} cleared`, extra);
       ctx.reply({ embeds: [e] });
       sendLog(ctx.guild, e);
+      target.user.send({ embeds: [new EmbedBuilder().setColor(0x000000)
+        .setTitle(`${E.check} Warnings Cleared — ${ctx.guild.name}`)
+        .setDescription(`Your warnings in **${ctx.guild.name}** have been cleared by a staff member.${timedOutLifted ? '\nYour timeout has also been lifted.' : ''}`)
+        .setTimestamp()] }).catch(() => {});
     },
   },
   purge: {
@@ -818,6 +836,101 @@ const COMMANDS = {
       }
       await target.roles.add(role);
       ctx.reply({ embeds: [ok('Role Added', `Gave **${role.name}** to **${target.user.tag}**.`)] });
+    },
+  },
+  tempban: {
+    cat: 'moderation', usage: 'tempban @user <time> [reason]  (e.g. tempban @user 2h spamming)', desc: 'Temporarily ban a member (auto-unbans after the time)',
+    async run(ctx, args, target) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
+      if (!target) return ctx.reply({ embeds: [err('Please provide a member to temp-ban.')] });
+      const raw = args[0];
+      if (!raw) return ctx.reply({ embeds: [err('Usage: `tempban @user <time> [reason]`\nExample: `tempban @User 2h spamming`\nUnits: s, m, h, d')] });
+      const match = raw.match(/^(\d+)([smhd])$/i);
+      if (!match) return ctx.reply({ embeds: [err('Invalid time. Use: `30m`, `2h`, `1d`, `60s`')] });
+      const val  = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      const ms   = unit === 's' ? val*1000 : unit === 'm' ? val*60_000 : unit === 'h' ? val*3_600_000 : val*86_400_000;
+      if (ms > 30 * 86_400_000) return ctx.reply({ embeds: [err('Max temp-ban is 30 days.')] });
+      const reason = args.slice(1).join(' ') || 'No reason provided';
+      const unbanAt = Math.floor((Date.now() + ms) / 1000);
+      if (!target.bannable) return ctx.reply({ embeds: [err('I cannot ban that member — they may be above me in the role hierarchy.')] });
+      await dmAction(target.user, 'Banned', ctx.guild.name, reason, `\n**Duration:** ${raw} (lifts <t:${unbanAt}:R>)`);
+      await target.ban({ reason: `[TEMP-BAN ${raw}] ${reason}` });
+      const e = modEmbed('Ban', ctx.author, target, reason, [['Duration', raw], ['Lifts', `<t:${unbanAt}:R>`]]);
+      ctx.reply({ embeds: [e] });
+      sendLog(ctx.guild, e);
+      setTimeout(async () => {
+        await ctx.guild.bans.remove(target.id, `[TEMP-BAN] Duration expired (${raw})`).catch(() => {});
+        sendLog(ctx.guild, new EmbedBuilder().setColor(0x000000)
+          .setTitle(`${E.check} Temp-Ban Expired`)
+          .setDescription(`**${target.user.tag}** (\`${target.id}\`) has been automatically unbanned.\n**Duration was:** ${raw}`)
+          .setTimestamp());
+      }, ms);
+    },
+  },
+  hide: {
+    cat: 'moderation', usage: 'hide [#channel] [reason]', desc: 'Hide a channel from everyone (ViewChannel off)',
+    async run(ctx, args) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
+      const ch = (args[0]?.startsWith('<#') ? ctx.guild.channels.cache.get(args[0].replace(/[^0-9]/g, '')) : null) || ctx.channel;
+      const reason = (args[0]?.startsWith('<#') ? args.slice(1) : args).join(' ') || 'No reason provided';
+      await ch.permissionOverwrites.edit(ctx.guild.roles.everyone, { ViewChannel: false });
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x000000)
+        .setTitle(`${E.staff} Channel Hidden`)
+        .setDescription(`${ch} is now **hidden** from everyone.\n**Reason:** ${reason}\nUse \`unhide\` to make it visible again.`)
+        .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
+    },
+  },
+  unhide: {
+    cat: 'moderation', usage: 'unhide [#channel]', desc: 'Unhide a channel — restores ViewChannel for everyone',
+    async run(ctx, args) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
+      const ch = (args[0]?.startsWith('<#') ? ctx.guild.channels.cache.get(args[0].replace(/[^0-9]/g, '')) : null) || ctx.channel;
+      await ch.permissionOverwrites.edit(ctx.guild.roles.everyone, { ViewChannel: null });
+      ctx.reply({ embeds: [new EmbedBuilder().setColor(0x000000)
+        .setTitle(`${E.check} Channel Visible`)
+        .setDescription(`${ch} is now **visible** again.`)
+        .setFooter({ text: `Moderator: ${ctx.author.tag}`, iconURL: ctx.author.displayAvatarURL() }).setTimestamp()] });
+    },
+  },
+  timeout: {
+    cat: 'moderation', usage: 'timeout @user <time> [reason]  (e.g. timeout @user 30m spamming)', desc: 'Timeout a member for a set duration',
+    async run(ctx, args, target) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
+      if (!target) return ctx.reply({ embeds: [err('Please provide a member.')] });
+      const raw = args[0];
+      if (!raw) return ctx.reply({ embeds: [err('Usage: `timeout @user <time> [reason]`\nExample: `timeout @User 30m spamming`\nUnits: s, m, h, d')] });
+      const match = raw.match(/^(\d+)([smhd])$/i);
+      if (!match) return ctx.reply({ embeds: [err('Invalid time. Use: `30s`, `10m`, `2h`, `1d`')] });
+      const val  = parseInt(match[1]);
+      const unit = match[2].toLowerCase();
+      const ms   = unit === 's' ? val*1000 : unit === 'm' ? val*60_000 : unit === 'h' ? val*3_600_000 : val*86_400_000;
+      if (ms > 28 * 86_400_000) return ctx.reply({ embeds: [err('Discord limits timeouts to 28 days max.')] });
+      const reason = args.slice(1).join(' ') || 'No reason provided';
+      if (!target.moderatable) return ctx.reply({ embeds: [err('I cannot timeout that member — they may be above me in the role hierarchy.')] });
+      await target.timeout(ms, reason);
+      const endsAt = Math.floor((Date.now() + ms) / 1000);
+      const e = modEmbed('Mute', ctx.author, target, reason, [['Duration', raw], ['Ends', `<t:${endsAt}:R>`]]);
+      ctx.reply({ embeds: [e] });
+      sendLog(ctx.guild, e);
+      target.user.send({ embeds: [new EmbedBuilder().setColor(0x000000)
+        .setTitle(`${E.warn} Timed Out — ${ctx.guild.name}`)
+        .setDescription(`You have been timed out for **${raw}**.\n**Reason:** ${reason}\n**Ends:** <t:${endsAt}:R>`)
+        .setFooter({ text: 'Contact a staff member if you believe this is a mistake.' }).setTimestamp()] }).catch(() => {});
+    },
+  },
+  untimeout: {
+    cat: 'moderation', usage: 'untimeout @user [reason]', desc: 'Remove an active timeout from a member',
+    async run(ctx, args, target) {
+      if (!isMod(ctx.member)) return ctx.reply({ embeds: [err('You need moderation permissions.')] });
+      if (!target) return ctx.reply({ embeds: [err('Please provide a member.')] });
+      if (!target.communicationDisabledUntilTimestamp || target.communicationDisabledUntilTimestamp <= Date.now())
+        return ctx.reply({ embeds: [err(`${target.user.tag} is not currently timed out.`)] });
+      const reason = args.join(' ') || 'No reason provided';
+      await target.timeout(null, reason);
+      const e = modEmbed('Unmute', ctx.author, target, reason);
+      ctx.reply({ embeds: [e] });
+      sendLog(ctx.guild, e);
     },
   },
 
@@ -1579,6 +1692,27 @@ const SLASH_DEFS = [
 
   new SlashCommandBuilder().setName('unlock').setDescription('Unlock the current channel').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels),
 
+  new SlashCommandBuilder().setName('tempban').setDescription('Temporarily ban a member — auto-unbans after time').setDefaultMemberPermissions(PermissionFlagsBits.BanMembers)
+    .addUserOption(o => o.setName('user').setDescription('Member to temp-ban').setRequired(true))
+    .addStringOption(o => o.setName('time').setDescription('Duration e.g. 30m, 2h, 1d').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+
+  new SlashCommandBuilder().setName('hide').setDescription('Hide a channel from everyone').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addChannelOption(o => o.setName('channel').setDescription('Channel to hide (defaults to current)').setRequired(false))
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+
+  new SlashCommandBuilder().setName('unhide').setDescription('Make a hidden channel visible again').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
+    .addChannelOption(o => o.setName('channel').setDescription('Channel to unhide (defaults to current)').setRequired(false)),
+
+  new SlashCommandBuilder().setName('timeout').setDescription('Timeout a member for a set duration').setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(o => o.setName('user').setDescription('Member to timeout').setRequired(true))
+    .addStringOption(o => o.setName('time').setDescription('Duration e.g. 10m, 1h, 1d').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+
+  new SlashCommandBuilder().setName('untimeout').setDescription('Remove an active timeout from a member').setDefaultMemberPermissions(PermissionFlagsBits.ModerateMembers)
+    .addUserOption(o => o.setName('user').setDescription('Member to un-timeout').setRequired(true))
+    .addStringOption(o => o.setName('reason').setDescription('Reason').setRequired(false)),
+
   new SlashCommandBuilder().setName('slowmode').setDescription('Set slowmode (0 = off)').setDefaultMemberPermissions(PermissionFlagsBits.ManageChannels)
     .addIntegerOption(o => o.setName('seconds').setDescription('Seconds (0–21600)').setMinValue(0).setMaxValue(21600).setRequired(true)),
 
@@ -1982,6 +2116,33 @@ client.on(Events.InteractionCreate, async (interaction) => {
       case 'lock':    return await COMMANDS.lock.run(ctx,    [options.getString('reason') || '']);
       case 'unlock':  return await COMMANDS.unlock.run(ctx,  []);
       case 'slowmode':return await COMMANDS.slowmode.run(ctx,[String(options.getInteger('seconds'))]);
+      case 'tempban': {
+        const member = await resolveMember(guild, options.getUser('user'));
+        const time   = options.getString('time') || '';
+        const reason = options.getString('reason') || '';
+        return await COMMANDS.tempban.run(ctx, [time, ...reason.split(' ')].filter(Boolean), member);
+      }
+      case 'hide': {
+        const ch     = options.getChannel('channel');
+        const reason = options.getString('reason') || '';
+        const chArg  = ch ? [`<#${ch.id}>`, ...reason.split(' ')].filter(Boolean) : reason ? reason.split(' ') : [];
+        return await COMMANDS.hide.run(ctx, chArg);
+      }
+      case 'unhide': {
+        const ch = options.getChannel('channel');
+        return await COMMANDS.unhide.run(ctx, ch ? [`<#${ch.id}>`] : []);
+      }
+      case 'timeout': {
+        const member = await resolveMember(guild, options.getUser('user'));
+        const time   = options.getString('time') || '';
+        const reason = options.getString('reason') || '';
+        return await COMMANDS.timeout.run(ctx, [time, ...reason.split(' ')].filter(Boolean), member);
+      }
+      case 'untimeout': {
+        const member = await resolveMember(guild, options.getUser('user'));
+        const reason = options.getString('reason') || '';
+        return await COMMANDS.untimeout.run(ctx, reason ? reason.split(' ') : [], member);
+      }
       case 'nickname':
       case 'nick': {
         const member = await resolveMember(guild, options.getUser('user'));
@@ -2148,13 +2309,17 @@ client.on(Events.MessageCreate, async (message) => {
     setTimeout(() => r.delete().catch(() => {}), 5000);
   }
 
-  // AFK: notify when pinging an AFK user
+  // AFK: notify when pinging an AFK user (checks map + nickname prefix fallback)
   for (const mentioned of message.mentions.members.values()) {
-    if (afkUsers.has(mentioned.id)) {
-      const d   = afkUsers.get(mentioned.id);
-      const ago = Date.now() - d.since;
-      const t   = ago < 60000 ? `${Math.floor(ago/1000)}s` : ago < 3600000 ? `${Math.floor(ago/60000)}m` : `${Math.floor(ago/3600000)}h`;
-      message.reply({ embeds: [warn('User is AFK', `**${mentioned.user.tag}** has been AFK for **${t}**.\n**Reason:** ${d.reason}`)] }).catch(() => {});
+    const mapAfk  = afkUsers.has(mentioned.id);
+    const nickAfk = !mapAfk && isNickAfk(mentioned);
+    if (mapAfk || nickAfk) {
+      const d    = mapAfk ? afkUsers.get(mentioned.id) : null;
+      const name = mentioned.nickname || mentioned.displayName;
+      const ago  = d ? Date.now() - d.since : null;
+      const t    = ago == null ? 'a while' : ago < 60000 ? `${Math.floor(ago/1000)}s` : ago < 3600000 ? `${Math.floor(ago/60000)}m` : `${Math.floor(ago/3600000)}h`;
+      const reason = d ? d.reason : 'AFK';
+      message.reply({ embeds: [warn('User is AFK', `**${name}** is AFK for **${t}**.\n**Reason:** ${reason}`)] }).catch(() => {});
       break;
     }
   }
@@ -2229,7 +2394,7 @@ client.on(Events.MessageCreate, async (message) => {
 
   // Resolve prefix-command target from mentions
   let target = null;
-  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'setticketimage', 'tickettype', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind'].includes(cmdName)) {
+  if (!['purge', 'config', 'setwelcome', 'setlogs', 'settickets', 'setmodrole', 'setadminrole', 'setmutedrole', 'setprefix', 'setwelcomeimage', 'setwelcomemsg', 'setgoodbye', 'setgoodbyemsg', 'resetconfig', 'setnoprefix', 'setmedia', 'mediawhitelist', 'setticketnote', 'setticketimage', 'tickettype', 'say', 'embed', 'serverinfo', 'ping', 'ticket', 'close', 'help', 'unban', 'lock', 'unlock', 'slowmode', 'afk', 'vouchleader', 'inviteleader', 'antinuke', 'invites', 'deal', 'setdeallog', 'botavatar', 'botbanner', 'botbio', 'botname', 'botstatus', 'serveravatar', 'serverbanner', 'autorespond', 'addcmd', 'delcmd', 'cmds', 'restart', 'remind', 'tempban', 'hide', 'unhide', 'timeout', 'untimeout'].includes(cmdName)) {
     const mentioned = message.mentions.members.first();
     if (mentioned) {
       target = mentioned;
